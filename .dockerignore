@@ -1,0 +1,24 @@
+# Only application source, build inputs and the generated runtime lock export.
+**
+!Dockerfile
+!deploy/
+!deploy/requirements.txt
+!server/
+!server/**
+!scripts/
+!scripts/**
+!web/
+!web/package.json
+!web/package-lock.json
+!web/index.html
+!web/tsconfig.json
+!web/vite.config.ts
+!web/src/
+!web/src/**
+!web/public/
+!web/public/**
+!web/scripts/
+!web/scripts/**
+**/__pycache__/
+**/*.py[cod]
+server/tests/

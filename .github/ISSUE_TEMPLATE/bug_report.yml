@@ -1,0 +1,29 @@
+name: 问题反馈
+description: 提交可复现的问题；请勿附真实账本或凭据。
+body:
+  - type: input
+    id: version
+    attributes:
+      label: 版本、浏览器与系统
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 最小复现步骤
+      description: 使用虚构数据，注明在线或离线。
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: 预期与实际结果
+    validations:
+      required: true
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: 隐私检查
+      options:
+        - label: 已移除账号、Cookie、密钥、真实记录与私人附件。
+          required: true

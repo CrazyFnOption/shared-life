@@ -1,0 +1,602 @@
+{
+  "format": 1,
+  "license": "MIT",
+  "copyright": "Copyright (c) 2026 CrazyFnOption",
+  "snapshots": {
+    "351ffe7": {
+      "source_commit": "351ffe717ba1dc4ed43c936964709eaa16061d04",
+      "purpose": "Historical implementation used only by isolated fictional migration/restore tests.",
+      "files": {
+        "scripts/automation.py": {
+          "sha256": "69f600a0a55a85c5b65ed19b1aadbdce592b2d81af2f865b33cdca244dca5d47",
+          "git_blob": "62e48c42a06c67fdf14dae2ea557e59383b5428a",
+          "mode": "100644"
+        },
+        "scripts/backup.py": {
+          "sha256": "d7a52f9b0ec90a5bc62335c8ce86a718c08a257b5f6f56d829139f29e34483a6",
+          "git_blob": "300f18700d2160ca2a9c0f7ffb30957e7b133ac5",
+          "mode": "100644"
+        },
+        "scripts/restore.py": {
+          "sha256": "9691a6f278fcf720fed20585cbe019cdebbee4637ad99cfdd8f8a678a861b7db",
+          "git_blob": "9812e6b6a6220ff86af8920a3521c644412ecd14",
+          "mode": "100644"
+        },
+        "scripts/seed_demo.py": {
+          "sha256": "972cd77cd9f1d28da7b93e1850fd0579e79a89a7f51bb492b00a6a57b279457a",
+          "git_blob": "bcb8267c10de1a5f5bf6ff162c72d6ba43df751c",
+          "mode": "100644"
+        },
+        "scripts/web.sh": {
+          "sha256": "575d6bffe3e100a34c09a56745e14548ee93cbb4c8d260eafb8f57d7dfdbe7e4",
+          "git_blob": "071ea93284d7facca4eaeeb0ecb60f4d24cee35a",
+          "mode": "100755"
+        },
+        "server/__init__.py": {
+          "sha256": "1f22d824c9dcd606ad3d2920b024c4fb0f331ea357062dd6c784f1f53beebabb",
+          "git_blob": "738cdb897f5ee6b731274aebae6e529f62cf37b8",
+          "mode": "100644"
+        },
+        "server/accounting/categories.py": {
+          "sha256": "8c117f2935dd45600fe363076e1fd69de7fba4651c3ffa72c03116c3cb9c4e27",
+          "git_blob": "fac51871de3af52a22459b7a02c833c3beb94047",
+          "mode": "100644"
+        },
+        "server/accounting/db.py": {
+          "sha256": "0402621faee7cb1289dea88e044ab844f89f6477c506a87ab3ceeb8e80ba46c4",
+          "git_blob": "0ba1130917a8ec8b500750e40b194fb2a6e010ec",
+          "mode": "100644"
+        },
+        "server/accounting/images.py": {
+          "sha256": "f71e09376e313e50426ffad0b57c49b031a1306ac840c0efc26bb668358913c1",
+          "git_blob": "103730b4a10b44d1db1897accacc265ea9c2514c",
+          "mode": "100644"
+        },
+        "server/accounting/ledger.py": {
+          "sha256": "8067f38410742df6b879366f6767137184e00aeba9eab04778801b8a98b574cb",
+          "git_blob": "17cbb8bfce396e7552336f029f87857ce50d2985",
+          "mode": "100644"
+        },
+        "server/accounting/requests.py": {
+          "sha256": "b29364dd1fa1f5b6bf164b92ead1b5f5f42f12cc13313f62e0def48fe1c3c994",
+          "git_blob": "18e7f0c2aa960afdbe9396d7f2190daeac5c01e5",
+          "mode": "100644"
+        },
+        "server/api/app.py": {
+          "sha256": "eb549c9ace02f142b7b16724cc7b2bbed89bdbe355dcf7c10d3f7eb9cb01b107",
+          "git_blob": "234d281902cdc57d4e0903a3afd28dd798d5f573",
+          "mode": "100644"
+        },
+        "server/api/models.py": {
+          "sha256": "2740a14ec8924900f620e9c51e40ad4c124f0242b7501349168f9598344d7335",
+          "git_blob": "cf3efa7691ec37bc39a40379e804f39b4dadb948",
+          "mode": "100644"
+        },
+        "server/automation/__init__.py": {
+          "sha256": "9f797409c74a827fdb0a81a731e21fc8670874b7c6d99ed21590c018c5dac2ab",
+          "git_blob": "11167b48db79deb82e4c61eeeaeb0d0052b4216b",
+          "mode": "100644"
+        },
+        "server/automation/api.py": {
+          "sha256": "c5c181a3904d8622b18ff6277214a2f2e8406b1ad145d79956017816bcd5cc84",
+          "git_blob": "d144ce2da900185bd7dc71c538df3556c59ce93f",
+          "mode": "100644"
+        },
+        "server/automation/backups.py": {
+          "sha256": "3ed6b76ac424098a544d8318420844daaf326ee8ba26073173413bd37e7d4ea6",
+          "git_blob": "543a58404245da47250216934ff3e7300d1da88a",
+          "mode": "100644"
+        },
+        "server/automation/providers.py": {
+          "sha256": "8092b7756251d9a232e9a4daac23bc5f5a5c9da83613f57ee8f4e3e1d5fdd5b8",
+          "git_blob": "364d91262e8fd4288b4e3a116f7aae0f562a140f",
+          "mode": "100644"
+        },
+        "server/automation/reports.py": {
+          "sha256": "f4870c6c231bb89725ba4fac0bae2d89cade1ab949276423a1f4d0fc7135e37f",
+          "git_blob": "89bf669081a694923a7ef24679870a099ea841e3",
+          "mode": "100644"
+        },
+        "server/automation/worker.py": {
+          "sha256": "de037287a27e7fd518e1e94ec103394cd47160398c06b27cc6c206ee3e67f640",
+          "git_blob": "837d00bd6b8d82f8bfe240ec4b4731eaa18f630e",
+          "mode": "100644"
+        },
+        "server/main.py": {
+          "sha256": "791a139118a99e3a82e4d1be3ef3ef8896385a90e48308b4e3dfff8c012ed6de",
+          "git_blob": "bb33fc43633bb9606dc3151fb259fc65b42124bc",
+          "mode": "100644"
+        },
+        "server/migrations/001_initial.sql": {
+          "sha256": "61527b2825940462da6a2b071694808ffec08d10e585acbfd1cc559f7caf787f",
+          "git_blob": "720a03ba95bac74a72f663d0c4adf66e5736c052",
+          "mode": "100644"
+        },
+        "server/migrations/002_categories_images.sql": {
+          "sha256": "3632f6f4f9cc08d1f3dc359e2fe0ce25fe1b8628b5c20cb402661bf6ffdc1604",
+          "git_blob": "56063c3637f692bf099007c430d59691334bc323",
+          "mode": "100644"
+        },
+        "server/migrations/003_maintenance.sql": {
+          "sha256": "eaa87dee1b52fcf76bf17c89c908f1cc62fa81389a608ae5818633381a2fcab1",
+          "git_blob": "1ed8267e25ff36dbd277558a351c0094062ebd81",
+          "mode": "100644"
+        },
+        "server/migrations/004_automation.sql": {
+          "sha256": "f6c849d623117a8437979c9a3acb36da168e8a658dc0b5f7ff36dcf8c94da23a",
+          "git_blob": "054311b4e80b67dbf23306474e86d8277b9627c7",
+          "mode": "100644"
+        }
+      }
+    },
+    "7262ef2": {
+      "source_commit": "7262ef2cf0946d87fb832ba0444f599f538f81b4",
+      "purpose": "Historical implementation used only by isolated fictional migration/restore tests.",
+      "files": {
+        "scripts/automation.py": {
+          "sha256": "69f600a0a55a85c5b65ed19b1aadbdce592b2d81af2f865b33cdca244dca5d47",
+          "git_blob": "62e48c42a06c67fdf14dae2ea557e59383b5428a",
+          "mode": "100644"
+        },
+        "scripts/backup.py": {
+          "sha256": "d7a52f9b0ec90a5bc62335c8ce86a718c08a257b5f6f56d829139f29e34483a6",
+          "git_blob": "300f18700d2160ca2a9c0f7ffb30957e7b133ac5",
+          "mode": "100644"
+        },
+        "scripts/create_account.py": {
+          "sha256": "bb876304c6e7e38feef5021d89a3c8277019d95059f4fc7f8686e29a07603c78",
+          "git_blob": "b59745e93b8dcbf2892ed9f72b37d3352b3f6b48",
+          "mode": "100644"
+        },
+        "scripts/restore.py": {
+          "sha256": "9691a6f278fcf720fed20585cbe019cdebbee4637ad99cfdd8f8a678a861b7db",
+          "git_blob": "9812e6b6a6220ff86af8920a3521c644412ecd14",
+          "mode": "100644"
+        },
+        "scripts/seed_demo.py": {
+          "sha256": "47b736c1d91dcbb5b007521040cd4a4343c67e3217619ddbf43c7607984e1c95",
+          "git_blob": "b914ea827d171275440608a75614c31ea3f403dd",
+          "mode": "100644"
+        },
+        "scripts/web.sh": {
+          "sha256": "575d6bffe3e100a34c09a56745e14548ee93cbb4c8d260eafb8f57d7dfdbe7e4",
+          "git_blob": "071ea93284d7facca4eaeeb0ecb60f4d24cee35a",
+          "mode": "100755"
+        },
+        "server/__init__.py": {
+          "sha256": "1f22d824c9dcd606ad3d2920b024c4fb0f331ea357062dd6c784f1f53beebabb",
+          "git_blob": "738cdb897f5ee6b731274aebae6e529f62cf37b8",
+          "mode": "100644"
+        },
+        "server/accounting/categories.py": {
+          "sha256": "2f4fe15c2a5b059d8da02cab4cad26e423dfa76be1f10069d578bac5f090c599",
+          "git_blob": "87d59ac4f905d5070a269d5cd27df958ad92bef6",
+          "mode": "100644"
+        },
+        "server/accounting/db.py": {
+          "sha256": "dee9cad668fa73a16697bbc1da3977c45720367333330b8ffa819ba097e2d779",
+          "git_blob": "3d14a2c9e0a1df0e06e6a985ed18954698b24b4e",
+          "mode": "100644"
+        },
+        "server/accounting/families.py": {
+          "sha256": "4105aa83ccff82b45791d8d9044ddbf39a2641c153637d2882c7e12f16dfb89d",
+          "git_blob": "c1a9ba473846bbf18dc32af299938a6f808163f3",
+          "mode": "100644"
+        },
+        "server/accounting/images.py": {
+          "sha256": "6fb5a321195b244066d63acce66807a9beda77ac131ede3d0e621e20716dcf68",
+          "git_blob": "109160da3c6b6ae2b554df0f8b12fef670749abc",
+          "mode": "100644"
+        },
+        "server/accounting/ledger.py": {
+          "sha256": "8778672000fc164c2ecb946092ccbc552dca72fbae97084be1966cc5e01cb748",
+          "git_blob": "720a78eb3b5a86c0edc35a5c693518892b908606",
+          "mode": "100644"
+        },
+        "server/accounting/requests.py": {
+          "sha256": "6e4415a9f2f285ad8f33949d29d486712a45f891f6d0e2865a539bf8bbadecca",
+          "git_blob": "bf8981c22e479db1405c7667f03cae09c6201908",
+          "mode": "100644"
+        },
+        "server/api/app.py": {
+          "sha256": "b48e4453c9ee14f31d421a8c1c6ef04550c1fd090990069842690ddc9e262c7c",
+          "git_blob": "b59fd7cdde8777d15da8f163aeb8fb84bc116ee9",
+          "mode": "100644"
+        },
+        "server/api/models.py": {
+          "sha256": "5b9ba8fdb98ab8d2704121b7f8c8c785e93341e33520b4de5b1685965a7881b0",
+          "git_blob": "b24bb2717b24349e77835cbb2f3a385a3da837a3",
+          "mode": "100644"
+        },
+        "server/automation/__init__.py": {
+          "sha256": "9f797409c74a827fdb0a81a731e21fc8670874b7c6d99ed21590c018c5dac2ab",
+          "git_blob": "11167b48db79deb82e4c61eeeaeb0d0052b4216b",
+          "mode": "100644"
+        },
+        "server/automation/api.py": {
+          "sha256": "438aae33684ea6d1a272e0ae29bee0f70391733e704c5be1fdaa743390cec498",
+          "git_blob": "79ab238809496bdb60715d219e28b88a61f79724",
+          "mode": "100644"
+        },
+        "server/automation/backups.py": {
+          "sha256": "80ac2e4aca595df67d7602295e9e2225403cd27226293d3284913be07ff3c374",
+          "git_blob": "fe7b01cb2d1323d7683784f23c0eb1f6a2ef6070",
+          "mode": "100644"
+        },
+        "server/automation/providers.py": {
+          "sha256": "8092b7756251d9a232e9a4daac23bc5f5a5c9da83613f57ee8f4e3e1d5fdd5b8",
+          "git_blob": "364d91262e8fd4288b4e3a116f7aae0f562a140f",
+          "mode": "100644"
+        },
+        "server/automation/reports.py": {
+          "sha256": "1d56baa606946722dc0bbebee5d1e7d315e55da161806f23d43f6b7864b47e26",
+          "git_blob": "fae8bdd122eaf2c3691a5a90a4293ebe74c21c7c",
+          "mode": "100644"
+        },
+        "server/automation/worker.py": {
+          "sha256": "30afb68f0520930acfe6d668c24ac6ab676533788fa357a4909668efe4103b84",
+          "git_blob": "f513b3bd5b9680e5493e5fc5c025872e6b723684",
+          "mode": "100644"
+        },
+        "server/main.py": {
+          "sha256": "3d36ba5f8b764d137ba3a7c2d23ad46207ccd1fa643a4c11a43f83f707a0892e",
+          "git_blob": "7310852df24dd6ab6d2eafb4be94c7a455228e44",
+          "mode": "100644"
+        },
+        "server/migrations/001_initial.sql": {
+          "sha256": "61527b2825940462da6a2b071694808ffec08d10e585acbfd1cc559f7caf787f",
+          "git_blob": "720a03ba95bac74a72f663d0c4adf66e5736c052",
+          "mode": "100644"
+        },
+        "server/migrations/002_categories_images.sql": {
+          "sha256": "3632f6f4f9cc08d1f3dc359e2fe0ce25fe1b8628b5c20cb402661bf6ffdc1604",
+          "git_blob": "56063c3637f692bf099007c430d59691334bc323",
+          "mode": "100644"
+        },
+        "server/migrations/003_maintenance.sql": {
+          "sha256": "eaa87dee1b52fcf76bf17c89c908f1cc62fa81389a608ae5818633381a2fcab1",
+          "git_blob": "1ed8267e25ff36dbd277558a351c0094062ebd81",
+          "mode": "100644"
+        },
+        "server/migrations/004_automation.sql": {
+          "sha256": "f6c849d623117a8437979c9a3acb36da168e8a658dc0b5f7ff36dcf8c94da23a",
+          "git_blob": "054311b4e80b67dbf23306474e86d8277b9627c7",
+          "mode": "100644"
+        },
+        "server/migrations/005_families.sql": {
+          "sha256": "b052071a775a1e7c07684f14d07a3270b092a9d5fcfad15e23f76c007a495bfb",
+          "git_blob": "c25697870971011e0e884e952c52b29c6103edfa",
+          "mode": "100644"
+        }
+      }
+    },
+    "298b15f": {
+      "source_commit": "298b15fb4985b24c2e94cf0302447e7a367bff68",
+      "purpose": "Historical implementation used only by isolated fictional migration/restore tests.",
+      "files": {
+        "scripts/automation.py": {
+          "sha256": "69f600a0a55a85c5b65ed19b1aadbdce592b2d81af2f865b33cdca244dca5d47",
+          "git_blob": "62e48c42a06c67fdf14dae2ea557e59383b5428a",
+          "mode": "100644"
+        },
+        "scripts/backup.py": {
+          "sha256": "d7a52f9b0ec90a5bc62335c8ce86a718c08a257b5f6f56d829139f29e34483a6",
+          "git_blob": "300f18700d2160ca2a9c0f7ffb30957e7b133ac5",
+          "mode": "100644"
+        },
+        "scripts/create_account.py": {
+          "sha256": "bb876304c6e7e38feef5021d89a3c8277019d95059f4fc7f8686e29a07603c78",
+          "git_blob": "b59745e93b8dcbf2892ed9f72b37d3352b3f6b48",
+          "mode": "100644"
+        },
+        "scripts/restore.py": {
+          "sha256": "9691a6f278fcf720fed20585cbe019cdebbee4637ad99cfdd8f8a678a861b7db",
+          "git_blob": "9812e6b6a6220ff86af8920a3521c644412ecd14",
+          "mode": "100644"
+        },
+        "scripts/seed_demo.py": {
+          "sha256": "47b736c1d91dcbb5b007521040cd4a4343c67e3217619ddbf43c7607984e1c95",
+          "git_blob": "b914ea827d171275440608a75614c31ea3f403dd",
+          "mode": "100644"
+        },
+        "scripts/web.sh": {
+          "sha256": "575d6bffe3e100a34c09a56745e14548ee93cbb4c8d260eafb8f57d7dfdbe7e4",
+          "git_blob": "071ea93284d7facca4eaeeb0ecb60f4d24cee35a",
+          "mode": "100755"
+        },
+        "server/__init__.py": {
+          "sha256": "1f22d824c9dcd606ad3d2920b024c4fb0f331ea357062dd6c784f1f53beebabb",
+          "git_blob": "738cdb897f5ee6b731274aebae6e529f62cf37b8",
+          "mode": "100644"
+        },
+        "server/accounting/categories.py": {
+          "sha256": "691e4bf7a0f8ee0aab8034024442f1e377e2dc81323c0a50b6a65355c14905a5",
+          "git_blob": "27ffbeada45c0723f2adeafb0d564c3cc6f1ec06",
+          "mode": "100644"
+        },
+        "server/accounting/category_changes.py": {
+          "sha256": "3350d8a3465bb826ff58ec13e9ab6d23f5d52f72deac9d42a62163354368f6d8",
+          "git_blob": "b5a2925be5b8c2ca8b3f725f766c277bdb52148a",
+          "mode": "100644"
+        },
+        "server/accounting/db.py": {
+          "sha256": "5d0edfc0d7be87669b10bb9e449889b8460dc460b2ced5079f349568630e1726",
+          "git_blob": "9010720f344cd63dc5c3bc3626bbc765dc300e76",
+          "mode": "100644"
+        },
+        "server/accounting/families.py": {
+          "sha256": "bfbd765b2b0946faf3890a6111983d731db6a669adf016419004b1012a2d384d",
+          "git_blob": "8c32716787a161b9e8dcb8d60d585fa954f89c3f",
+          "mode": "100644"
+        },
+        "server/accounting/images.py": {
+          "sha256": "6fb5a321195b244066d63acce66807a9beda77ac131ede3d0e621e20716dcf68",
+          "git_blob": "109160da3c6b6ae2b554df0f8b12fef670749abc",
+          "mode": "100644"
+        },
+        "server/accounting/ledger.py": {
+          "sha256": "ff8fabb4c7dc94a269fa611133094d96c0a7670b905c0f9054fc876fa8c9caaf",
+          "git_blob": "0b557d1404f58e71fbe9678d010404acea665593",
+          "mode": "100644"
+        },
+        "server/accounting/requests.py": {
+          "sha256": "e2d44cb0b00d4a749172cce026eadc7102508afab6382f3c07a073cfc07d5b34",
+          "git_blob": "847602696298521bef03bc589814c005276e3280",
+          "mode": "100644"
+        },
+        "server/api/app.py": {
+          "sha256": "275e6ae88fe7dcd15c2a9eeddd6a77513ef4d84bfa2aca1ab19595a665113004",
+          "git_blob": "1975e326285eba014f0734e163e0a19c5e1d46bd",
+          "mode": "100644"
+        },
+        "server/api/models.py": {
+          "sha256": "9f2b1de0ec67ee99d0ab2a9b99efa0638e0218baaacbaf96dd2ddf4ecc9fb534",
+          "git_blob": "f788890c555d7847998e1657883d53dc603cc40a",
+          "mode": "100644"
+        },
+        "server/automation/__init__.py": {
+          "sha256": "9f797409c74a827fdb0a81a731e21fc8670874b7c6d99ed21590c018c5dac2ab",
+          "git_blob": "11167b48db79deb82e4c61eeeaeb0d0052b4216b",
+          "mode": "100644"
+        },
+        "server/automation/api.py": {
+          "sha256": "438aae33684ea6d1a272e0ae29bee0f70391733e704c5be1fdaa743390cec498",
+          "git_blob": "79ab238809496bdb60715d219e28b88a61f79724",
+          "mode": "100644"
+        },
+        "server/automation/backups.py": {
+          "sha256": "51eb13ca22ef6a39d0123149e8d8b5e3711f82f5a5587ecaf3be1c7d8bba13a7",
+          "git_blob": "dce7563254a512b3297307ad9ac65607d5d0f8e5",
+          "mode": "100644"
+        },
+        "server/automation/providers.py": {
+          "sha256": "8092b7756251d9a232e9a4daac23bc5f5a5c9da83613f57ee8f4e3e1d5fdd5b8",
+          "git_blob": "364d91262e8fd4288b4e3a116f7aae0f562a140f",
+          "mode": "100644"
+        },
+        "server/automation/reports.py": {
+          "sha256": "1d56baa606946722dc0bbebee5d1e7d315e55da161806f23d43f6b7864b47e26",
+          "git_blob": "fae8bdd122eaf2c3691a5a90a4293ebe74c21c7c",
+          "mode": "100644"
+        },
+        "server/automation/worker.py": {
+          "sha256": "30afb68f0520930acfe6d668c24ac6ab676533788fa357a4909668efe4103b84",
+          "git_blob": "f513b3bd5b9680e5493e5fc5c025872e6b723684",
+          "mode": "100644"
+        },
+        "server/main.py": {
+          "sha256": "3d36ba5f8b764d137ba3a7c2d23ad46207ccd1fa643a4c11a43f83f707a0892e",
+          "git_blob": "7310852df24dd6ab6d2eafb4be94c7a455228e44",
+          "mode": "100644"
+        },
+        "server/migrations/001_initial.sql": {
+          "sha256": "61527b2825940462da6a2b071694808ffec08d10e585acbfd1cc559f7caf787f",
+          "git_blob": "720a03ba95bac74a72f663d0c4adf66e5736c052",
+          "mode": "100644"
+        },
+        "server/migrations/002_categories_images.sql": {
+          "sha256": "3632f6f4f9cc08d1f3dc359e2fe0ce25fe1b8628b5c20cb402661bf6ffdc1604",
+          "git_blob": "56063c3637f692bf099007c430d59691334bc323",
+          "mode": "100644"
+        },
+        "server/migrations/003_maintenance.sql": {
+          "sha256": "eaa87dee1b52fcf76bf17c89c908f1cc62fa81389a608ae5818633381a2fcab1",
+          "git_blob": "1ed8267e25ff36dbd277558a351c0094062ebd81",
+          "mode": "100644"
+        },
+        "server/migrations/004_automation.sql": {
+          "sha256": "f6c849d623117a8437979c9a3acb36da168e8a658dc0b5f7ff36dcf8c94da23a",
+          "git_blob": "054311b4e80b67dbf23306474e86d8277b9627c7",
+          "mode": "100644"
+        },
+        "server/migrations/005_families.sql": {
+          "sha256": "b052071a775a1e7c07684f14d07a3270b092a9d5fcfad15e23f76c007a495bfb",
+          "git_blob": "c25697870971011e0e884e952c52b29c6103edfa",
+          "mode": "100644"
+        },
+        "server/migrations/006_category_changes.sql": {
+          "sha256": "e09e37d66933babca08e0609a47f19de533b5a7dd680a4a07c61940feab08c0a",
+          "git_blob": "b308c13dbdc80d3f726896ceac2c0a457fd3ffb6",
+          "mode": "100644"
+        },
+        "server/migrations/007_rejection_reasons.sql": {
+          "sha256": "0b8d3085798f578800ff9ab0d72a48aea08067197fa78a3d85bb8a9a87d5d4b2",
+          "git_blob": "28306cba07d8af3dbb223fec27ccb528d6b41526",
+          "mode": "100644"
+        }
+      }
+    },
+    "0a56d79": {
+      "source_commit": "0a56d79e39af228d49140870f1b0a2e203afedb6",
+      "purpose": "Historical implementation used only by isolated fictional migration/restore tests.",
+      "files": {
+        "scripts/automation.py": {
+          "sha256": "69f600a0a55a85c5b65ed19b1aadbdce592b2d81af2f865b33cdca244dca5d47",
+          "git_blob": "62e48c42a06c67fdf14dae2ea557e59383b5428a",
+          "mode": "100644"
+        },
+        "scripts/backup.py": {
+          "sha256": "d7a52f9b0ec90a5bc62335c8ce86a718c08a257b5f6f56d829139f29e34483a6",
+          "git_blob": "300f18700d2160ca2a9c0f7ffb30957e7b133ac5",
+          "mode": "100644"
+        },
+        "scripts/create_account.py": {
+          "sha256": "bb876304c6e7e38feef5021d89a3c8277019d95059f4fc7f8686e29a07603c78",
+          "git_blob": "b59745e93b8dcbf2892ed9f72b37d3352b3f6b48",
+          "mode": "100644"
+        },
+        "scripts/restore.py": {
+          "sha256": "9691a6f278fcf720fed20585cbe019cdebbee4637ad99cfdd8f8a678a861b7db",
+          "git_blob": "9812e6b6a6220ff86af8920a3521c644412ecd14",
+          "mode": "100644"
+        },
+        "scripts/seed_demo.py": {
+          "sha256": "47b736c1d91dcbb5b007521040cd4a4343c67e3217619ddbf43c7607984e1c95",
+          "git_blob": "b914ea827d171275440608a75614c31ea3f403dd",
+          "mode": "100644"
+        },
+        "scripts/web.sh": {
+          "sha256": "575d6bffe3e100a34c09a56745e14548ee93cbb4c8d260eafb8f57d7dfdbe7e4",
+          "git_blob": "071ea93284d7facca4eaeeb0ecb60f4d24cee35a",
+          "mode": "100755"
+        },
+        "server/__init__.py": {
+          "sha256": "1f22d824c9dcd606ad3d2920b024c4fb0f331ea357062dd6c784f1f53beebabb",
+          "git_blob": "738cdb897f5ee6b731274aebae6e529f62cf37b8",
+          "mode": "100644"
+        },
+        "server/accounting/categories.py": {
+          "sha256": "691e4bf7a0f8ee0aab8034024442f1e377e2dc81323c0a50b6a65355c14905a5",
+          "git_blob": "27ffbeada45c0723f2adeafb0d564c3cc6f1ec06",
+          "mode": "100644"
+        },
+        "server/accounting/category_changes.py": {
+          "sha256": "3350d8a3465bb826ff58ec13e9ab6d23f5d52f72deac9d42a62163354368f6d8",
+          "git_blob": "b5a2925be5b8c2ca8b3f725f766c277bdb52148a",
+          "mode": "100644"
+        },
+        "server/accounting/db.py": {
+          "sha256": "5d0edfc0d7be87669b10bb9e449889b8460dc460b2ced5079f349568630e1726",
+          "git_blob": "9010720f344cd63dc5c3bc3626bbc765dc300e76",
+          "mode": "100644"
+        },
+        "server/accounting/families.py": {
+          "sha256": "bfbd765b2b0946faf3890a6111983d731db6a669adf016419004b1012a2d384d",
+          "git_blob": "8c32716787a161b9e8dcb8d60d585fa954f89c3f",
+          "mode": "100644"
+        },
+        "server/accounting/images.py": {
+          "sha256": "6fb5a321195b244066d63acce66807a9beda77ac131ede3d0e621e20716dcf68",
+          "git_blob": "109160da3c6b6ae2b554df0f8b12fef670749abc",
+          "mode": "100644"
+        },
+        "server/accounting/ledger.py": {
+          "sha256": "ff8fabb4c7dc94a269fa611133094d96c0a7670b905c0f9054fc876fa8c9caaf",
+          "git_blob": "0b557d1404f58e71fbe9678d010404acea665593",
+          "mode": "100644"
+        },
+        "server/accounting/requests.py": {
+          "sha256": "e2d44cb0b00d4a749172cce026eadc7102508afab6382f3c07a073cfc07d5b34",
+          "git_blob": "847602696298521bef03bc589814c005276e3280",
+          "mode": "100644"
+        },
+        "server/api/app.py": {
+          "sha256": "275e6ae88fe7dcd15c2a9eeddd6a77513ef4d84bfa2aca1ab19595a665113004",
+          "git_blob": "1975e326285eba014f0734e163e0a19c5e1d46bd",
+          "mode": "100644"
+        },
+        "server/api/models.py": {
+          "sha256": "9f2b1de0ec67ee99d0ab2a9b99efa0638e0218baaacbaf96dd2ddf4ecc9fb534",
+          "git_blob": "f788890c555d7847998e1657883d53dc603cc40a",
+          "mode": "100644"
+        },
+        "server/automation/__init__.py": {
+          "sha256": "9f797409c74a827fdb0a81a731e21fc8670874b7c6d99ed21590c018c5dac2ab",
+          "git_blob": "11167b48db79deb82e4c61eeeaeb0d0052b4216b",
+          "mode": "100644"
+        },
+        "server/automation/api.py": {
+          "sha256": "438aae33684ea6d1a272e0ae29bee0f70391733e704c5be1fdaa743390cec498",
+          "git_blob": "79ab238809496bdb60715d219e28b88a61f79724",
+          "mode": "100644"
+        },
+        "server/automation/backups.py": {
+          "sha256": "51eb13ca22ef6a39d0123149e8d8b5e3711f82f5a5587ecaf3be1c7d8bba13a7",
+          "git_blob": "dce7563254a512b3297307ad9ac65607d5d0f8e5",
+          "mode": "100644"
+        },
+        "server/automation/providers.py": {
+          "sha256": "8092b7756251d9a232e9a4daac23bc5f5a5c9da83613f57ee8f4e3e1d5fdd5b8",
+          "git_blob": "364d91262e8fd4288b4e3a116f7aae0f562a140f",
+          "mode": "100644"
+        },
+        "server/automation/reports.py": {
+          "sha256": "1d56baa606946722dc0bbebee5d1e7d315e55da161806f23d43f6b7864b47e26",
+          "git_blob": "fae8bdd122eaf2c3691a5a90a4293ebe74c21c7c",
+          "mode": "100644"
+        },
+        "server/automation/worker.py": {
+          "sha256": "30afb68f0520930acfe6d668c24ac6ab676533788fa357a4909668efe4103b84",
+          "git_blob": "f513b3bd5b9680e5493e5fc5c025872e6b723684",
+          "mode": "100644"
+        },
+        "server/main.py": {
+          "sha256": "3d36ba5f8b764d137ba3a7c2d23ad46207ccd1fa643a4c11a43f83f707a0892e",
+          "git_blob": "7310852df24dd6ab6d2eafb4be94c7a455228e44",
+          "mode": "100644"
+        },
+        "server/migrations/001_initial.sql": {
+          "sha256": "61527b2825940462da6a2b071694808ffec08d10e585acbfd1cc559f7caf787f",
+          "git_blob": "720a03ba95bac74a72f663d0c4adf66e5736c052",
+          "mode": "100644"
+        },
+        "server/migrations/002_categories_images.sql": {
+          "sha256": "3632f6f4f9cc08d1f3dc359e2fe0ce25fe1b8628b5c20cb402661bf6ffdc1604",
+          "git_blob": "56063c3637f692bf099007c430d59691334bc323",
+          "mode": "100644"
+        },
+        "server/migrations/003_maintenance.sql": {
+          "sha256": "eaa87dee1b52fcf76bf17c89c908f1cc62fa81389a608ae5818633381a2fcab1",
+          "git_blob": "1ed8267e25ff36dbd277558a351c0094062ebd81",
+          "mode": "100644"
+        },
+        "server/migrations/004_automation.sql": {
+          "sha256": "f6c849d623117a8437979c9a3acb36da168e8a658dc0b5f7ff36dcf8c94da23a",
+          "git_blob": "054311b4e80b67dbf23306474e86d8277b9627c7",
+          "mode": "100644"
+        },
+        "server/migrations/005_families.sql": {
+          "sha256": "b052071a775a1e7c07684f14d07a3270b092a9d5fcfad15e23f76c007a495bfb",
+          "git_blob": "c25697870971011e0e884e952c52b29c6103edfa",
+          "mode": "100644"
+        },
+        "server/migrations/006_category_changes.sql": {
+          "sha256": "e09e37d66933babca08e0609a47f19de533b5a7dd680a4a07c61940feab08c0a",
+          "git_blob": "b308c13dbdc80d3f726896ceac2c0a457fd3ffb6",
+          "mode": "100644"
+        },
+        "server/migrations/007_rejection_reasons.sql": {
+          "sha256": "0b8d3085798f578800ff9ab0d72a48aea08067197fa78a3d85bb8a9a87d5d4b2",
+          "git_blob": "28306cba07d8af3dbb223fec27ccb528d6b41526",
+          "mode": "100644"
+        }
+      }
+    },
+    "8b88854": {
+      "source_commit": "8b888545177921bd0c522667a506a212c8e1f848",
+      "purpose": "Historical implementation used only by isolated fictional migration/restore tests.",
+      "files": {
+        "server/accounting/db.py": {
+          "sha256": "f911c6940777d27797c29c7760585618b2d0fefc2e7ae21bb2f4e95a926962f8",
+          "git_blob": "053cc3d8a59adc29fc9688deccfd427afc4dd049",
+          "mode": "100644"
+        },
+        "server/automation/backups.py": {
+          "sha256": "b7292590d8d6668a64e9c02cc593e65dafdc637f452b534424c1215291dd2e77",
+          "git_blob": "cabbc143b98fa2cb5f427668d2e353c978cebb67",
+          "mode": "100644"
+        }
+      }
+    }
+  }
+}

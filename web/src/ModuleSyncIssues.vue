@@ -1,0 +1,6 @@
+<script setup lang="ts">
+import type { ModuleIssue, ModuleIssueAction } from './moduleIssues'
+defineProps<{issues:ModuleIssue[];busy:boolean}>()
+const emit=defineEmits<{action:[issue:ModuleIssue,action:ModuleIssueAction]}>()
+</script>
+<template><section v-if="issues.length" class="issues module-sync-issues" aria-label="本模块同步问题"><h2>本机内容需要处理</h2><article v-for="issue in issues" :key="issue.key" class="issue"><h3>{{ issue.title }}</h3><p>{{ issue.message }}</p><details><summary>核对本机内容与服务端</summary><div class="comparison"><div><strong>本机</strong><pre>{{ issue.local_text }}</pre></div><div><strong>服务端</strong><pre>{{ issue.server_text || '未核对到对应服务端记录' }}</pre></div></div></details><div class="action-row"><button v-if="issue.review" type="button" class="subtle" :disabled="busy" @click="emit('action',issue,'review')">{{ issue.attachment?'核对后继续上传':'已核对，按原编号重试' }}</button><button v-else-if="issue.can_rebase" type="button" class="subtle" :disabled="busy" @click="emit('action',issue,'rebase')">保留本机修改，按最新版本重提</button><button v-else type="button" class="subtle" :disabled="busy" @click="emit('action',issue,'retry')">按原内容重试</button><button type="button" class="text-button" :disabled="busy" @click="emit('action',issue,'discard')">放弃这项本机变更</button></div></article></section></template>

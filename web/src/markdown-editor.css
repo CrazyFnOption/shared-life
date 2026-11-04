@@ -1,0 +1,22 @@
+.markdown-editor{min-width:0;width:100%;border:1px solid var(--sl-line,#DCE6E1);border-radius:14px;background:var(--sl-paper,#fff);overflow:hidden;color:var(--sl-ink,#183A30)}
+.markdown-editor:focus-within{border-color:var(--sl-brand,#007F69);box-shadow:0 0 0 3px #007f6910}
+.markdown-editor .md-toolbar{display:flex;align-items:center;gap:2px;padding:4px 8px;border-bottom:1px solid var(--sl-line,#DCE6E1);background:var(--sl-canvas,#F7F9F8)}
+.markdown-editor .md-toolbar button{display:grid;place-items:center;min-width:40px;min-height:40px;margin:0;padding:4px;border:0;border-radius:8px;background:none;color:var(--sl-muted,#63766F);font-size:18px;cursor:pointer}
+.markdown-editor .md-toolbar button:hover{background:#007f6910;color:var(--sl-brand,#007F69)}
+.markdown-editor .md-toolbar-spacer{flex:1}
+.markdown-editor .cm-editor{background:transparent;min-width:0;font-size:16px;font-family:inherit}
+.markdown-editor .cm-editor.cm-focused{outline:none}
+.markdown-editor .cm-scroller{font-family:inherit;line-height:1.8;overflow:auto}
+.markdown-editor .cm-content{padding:16px 14px;min-height:220px;caret-color:var(--sl-brand,#007F69);overflow-wrap:anywhere;font-size:16px}
+.markdown-editor .cm-line{padding:0;word-break:normal}
+.markdown-editor .cm-placeholder,.markdown-editor .md-hint{color:var(--sl-muted,#63766F)}
+.markdown-editor .md-hint{margin:0!important;padding:8px 14px 12px;font-size:11px!important;line-height:1.5}
+.markdown-editor .md-heading{font-weight:650;line-height:1.5;padding-top:8px;padding-bottom:5px}
+.markdown-editor .md-h1{font-size:1.55em}.markdown-editor .md-h2{font-size:1.3em}.markdown-editor .md-h3{font-size:1.15em}
+.markdown-editor .md-strong{font-weight:700}.markdown-editor .md-emphasis{font-style:italic}
+.markdown-editor .md-inline-code{font-family:ui-monospace,SFMono-Regular,monospace;font-size:.9em;background:#007f690b;border-radius:4px;padding-block:2px}
+.markdown-editor .md-code-line{font-family:ui-monospace,SFMono-Regular,monospace;background:var(--sl-canvas,#F7F9F8);font-size:.9em;padding-inline:10px;white-space:pre-wrap}
+.markdown-editor .md-quote-line{border-left:3px solid var(--sl-brand,#007F69);padding-left:12px;color:var(--sl-muted,#63766F);background:#007f6905}
+.markdown-editor .md-list-line{padding-left:14px}.markdown-editor .md-link{color:var(--sl-brand,#007F69);text-decoration:underline;text-underline-offset:3px}
+.markdown-editor.is-disabled{opacity:.65}.markdown-editor .cm-selectionBackground{background:#007f6925!important}
+@media(max-width:360px){.markdown-editor .md-toolbar button{min-width:38px}.markdown-editor .cm-content{padding:12px}}

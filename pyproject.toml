@@ -1,0 +1,21 @@
+[project]
+name = "shared-life"
+version = "1.0.0"
+description = "Tongzai: local-first shared life, memos, plans and expenses"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+  "fastapi>=0.120,<1",
+  "uvicorn>=0.38,<1",
+  "argon2-cffi>=25,<26",
+  "pillow>=12,<13",
+  "pywebpush>=2.5,<3",
+  "lunar-python>=1.4.8,<2",
+]
+
+[dependency-groups]
+dev = ["pytest>=8,<10", "httpx>=0.28,<1"]
+
+[tool.pytest.ini_options]
+testpaths = ["server/tests", "tests/integration", "tests/faults"]
+pythonpath = ["."]
+

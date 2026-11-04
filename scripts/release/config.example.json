@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "wheelhouse": "../wheelhouse",
+  "base_images": {
+    "node:24-bookworm-slim": "sha256:c86ecead9e55a5210ac1727de38a4ca840bf03dcaf34dc9749addbf383b1920c",
+    "python:3.13-slim-bookworm": "sha256:281d39ff02e3b389401586134ff9e6572954687822a58055ec07a60ded4e0b7f"
+  },
+  "schema": 9,
+  "backup_format": 2,
+  "ssh": [
+    "ssh",
+    "-S",
+    "none",
+    "-o",
+    "BatchMode=yes",
+    "-o",
+    "ConnectTimeout=8",
+    "nas-example"
+  ],
+  "remote_root": "/srv/shared-life",
+  "docker": "/usr/bin/docker",
+  "docker_config": "/srv/shared-life/client-config",
+  "project": "shared-life",
+  "container": "shared-life-app-1",
+  "volume": "shared-life_ledger",
+  "daily": "/srv/shared-life/backups/daily",
+  "baseline": {
+    "commit": "REPLACE_WITH_VERIFIED_FULL_40_HEX_COMMIT",
+    "image": "shared-life:previous",
+    "image_id": "sha256:REPLACE_WITH_VERIFIED_IMAGE_ID",
+    "source": "/srv/shared-life/source-previous"
+  },
+  "image_repository": "shared-life",
+  "compose_files": [
+    "compose.yaml",
+    "compose.trial.yaml"
+  ],
+  "overlay": "compose.trial.yaml",
+  "expected_environment": {
+    "SHARED_EXPENSE_DB": "/data/ledger.sqlite3",
+    "SHARED_EXPENSE_ORIGINS": "https://app.example.test",
+    "SHARED_EXPENSE_SECURE_COOKIE": "1",
+    "SHARED_EXPENSE_ALLOW_MODEL_CALLS": "0",
+    "SHARED_EXPENSE_MODEL_CALL_LIMIT": "0",
+    "SHARED_EXPENSE_ALLOW_PUSH": "1",
+    "SHARED_EXPENSE_BACKUP_DIR": "/backups"
+  },
+  "https_routes": [
+    {
+      "name": "LAN",
+      "origin": "https://app.example.test",
+      "address": "192.0.2.10",
+      "interface": "en0"
+    },
+    {
+      "name": "VPN",
+      "origin": "https://app.example.test",
+      "address": "192.0.2.20"
+    }
+  ],
+  "operator_uid": 1000,
+  "operator_gid": 100,
+  "reviewed_runtime_changes": [],
+  "reviewed_frontend_dependency_additions": []
+}

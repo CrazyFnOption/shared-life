@@ -1,0 +1,20 @@
+services:
+  app:
+    image: shared-life:local
+    build: .
+    ports:
+      - "127.0.0.1:8765:8765"
+    environment:
+      SHARED_EXPENSE_DB: /data/ledger.sqlite3
+      SHARED_EXPENSE_ORIGINS: http://127.0.0.1:8765,http://localhost:8765
+      SHARED_EXPENSE_SECURE_COOKIE: "0"
+      SHARED_EXPENSE_ALLOW_MODEL_CALLS: "0"
+      SHARED_EXPENSE_MODEL_CALL_LIMIT: "0"
+      SHARED_EXPENSE_ALLOW_PUSH: "0"
+      SHARED_EXPENSE_BACKUP_DIR: ""
+    volumes:
+      - ledger:/data
+    stop_grace_period: 30s
+
+volumes:
+  ledger:

@@ -1,0 +1,1038 @@
+[
+  {
+    "package": "uvicorn",
+    "version": "0.54.0",
+    "file": "python/uvicorn-0.54.0/licenses/LICENSE.md",
+    "sha256": "efe1acf3e62fb99c288b0ec73e5a773b7268ef4320fe757ea994214e4b63c371",
+    "ecosystem": "python"
+  },
+  {
+    "package": "pydantic",
+    "version": "2.14.2",
+    "file": "python/pydantic-2.14.2/licenses/LICENSE",
+    "sha256": "a9e186f3ca16b5eef84318e7a701721351a00cb7b8ae3a4394b67b49e3529ef3",
+    "ecosystem": "python"
+  },
+  {
+    "package": "starlette",
+    "version": "1.10.0",
+    "file": "python/starlette-1.10.0/licenses/LICENSE.md",
+    "sha256": "dcb95677a02240243187e964f941847d19b17821cf99e5afae684fab328c19bf",
+    "ecosystem": "python"
+  },
+  {
+    "package": "click",
+    "version": "8.5.0",
+    "file": "python/click-8.5.0/licenses/LICENSE.txt",
+    "sha256": "9a8ad106a394e853bfe21f42f4e72d592819a22805d991b5f3275029292b658d",
+    "ecosystem": "python"
+  },
+  {
+    "package": "packaging",
+    "version": "26.3",
+    "file": "python/packaging-26.3/licenses/LICENSE",
+    "sha256": "cad1ef5bd340d73e074ba614d26f7deaca5c7940c3d8c34852e65c4909686c48",
+    "ecosystem": "python"
+  },
+  {
+    "package": "packaging",
+    "version": "26.3",
+    "file": "python/packaging-26.3/licenses/LICENSE.APACHE",
+    "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594",
+    "ecosystem": "python"
+  },
+  {
+    "package": "packaging",
+    "version": "26.3",
+    "file": "python/packaging-26.3/licenses/LICENSE.BSD",
+    "sha256": "b70e7e9b742f1cc6f948b34c16aa39ffece94196364bc88ff0d2180f0028fac5",
+    "ecosystem": "python"
+  },
+  {
+    "package": "Pygments",
+    "version": "2.21.0",
+    "file": "python/Pygments-2.21.0/licenses/AUTHORS",
+    "sha256": "71a83872ad82f57be692cf827e048e2cd51d45169cfa1ea3f28706d97a872c0f",
+    "ecosystem": "python"
+  },
+  {
+    "package": "Pygments",
+    "version": "2.21.0",
+    "file": "python/Pygments-2.21.0/licenses/LICENSE",
+    "sha256": "a9d66f1d526df02e29dce73436d34e56e8632f46c275bbdffc70569e882f9f17",
+    "ecosystem": "python"
+  },
+  {
+    "package": "requests",
+    "version": "2.34.2",
+    "file": "python/requests-2.34.2/licenses/LICENSE",
+    "sha256": "09e8a9bcec8067104652c168685ab0931e7868f9c8284b66f5ae6edae5f1130b",
+    "ecosystem": "python"
+  },
+  {
+    "package": "requests",
+    "version": "2.34.2",
+    "file": "python/requests-2.34.2/licenses/NOTICE",
+    "sha256": "f5110972dedad2b4e9d314518daf3b7d72d6e02e499acd802181de6f74571dcc",
+    "ecosystem": "python"
+  },
+  {
+    "package": "certifi",
+    "version": "2026.10.23",
+    "file": "python/certifi-2026.10.23/licenses/LICENSE",
+    "sha256": "e93716da6b9c0d5a4a1df60fe695b370f0695603d21f6f83f053e42cfc10caf7",
+    "ecosystem": "python"
+  },
+  {
+    "package": "yarl",
+    "version": "1.25.1",
+    "file": "python/yarl-1.25.1/licenses/LICENSE",
+    "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "ecosystem": "python"
+  },
+  {
+    "package": "yarl",
+    "version": "1.25.1",
+    "file": "python/yarl-1.25.1/licenses/NOTICE",
+    "sha256": "56d6ac6c8105c0a51304c21db060e361af9a8ea0af9a75c239c28b5d13693838",
+    "ecosystem": "python"
+  },
+  {
+    "package": "lunar_python",
+    "version": "1.4.8",
+    "file": "python/lunar_python-1.4.8/licenses/LICENSE",
+    "sha256": "a9d04f47f0615c0ce48bdbe2ff58d5c174279d9f20f044ef29249632302a4ab3",
+    "ecosystem": "python"
+  },
+  {
+    "package": "opentelemetry-api",
+    "version": "1.45.1",
+    "file": "python/opentelemetry-api-1.45.1/licenses/LICENSE",
+    "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+    "ecosystem": "python"
+  },
+  {
+    "package": "pydantic_core",
+    "version": "2.50.2",
+    "file": "python/pydantic_core-2.50.2/licenses/LICENSE",
+    "sha256": "2afdd30d54b4d62b6f488a6bcc1546e84ec5061f13f4209c03d012348783795a",
+    "ecosystem": "python"
+  },
+  {
+    "package": "propcache",
+    "version": "0.5.4",
+    "file": "python/propcache-0.5.4/licenses/LICENSE",
+    "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "ecosystem": "python"
+  },
+  {
+    "package": "propcache",
+    "version": "0.5.4",
+    "file": "python/propcache-0.5.4/licenses/NOTICE",
+    "sha256": "56d6ac6c8105c0a51304c21db060e361af9a8ea0af9a75c239c28b5d13693838",
+    "ecosystem": "python"
+  },
+  {
+    "package": "iniconfig",
+    "version": "2.3.1",
+    "file": "python/iniconfig-2.3.1/licenses/LICENSE",
+    "sha256": "3409fa91f7ace557894632676656e32264fe5ef7581535725dc9a23774551bd4",
+    "ecosystem": "python"
+  },
+  {
+    "package": "httpcore",
+    "version": "1.0.9",
+    "file": "python/httpcore-1.0.9/licenses/LICENSE.md",
+    "sha256": "fdcb59154c74cbaba16a11242f7740bea9f23d6feb5547917d8c5f94a80392a5",
+    "ecosystem": "python"
+  },
+  {
+    "package": "aiohappyeyeballs",
+    "version": "2.7.1",
+    "file": "python/aiohappyeyeballs-2.7.1/licenses/LICENSE",
+    "sha256": "3b2f81fe21d181c499c59a256c8e1968455d6689d269aa85373bfb6af41da3bf",
+    "ecosystem": "python"
+  },
+  {
+    "package": "cryptography",
+    "version": "50.0.2",
+    "file": "python/cryptography-50.0.2/licenses/LICENSE",
+    "sha256": "3e0c7c091a948b82533ba98fd7cbb40432d6f1a9acbf85f5922d2f99a93ae6bb",
+    "ecosystem": "python"
+  },
+  {
+    "package": "cryptography",
+    "version": "50.0.2",
+    "file": "python/cryptography-50.0.2/licenses/LICENSE.APACHE",
+    "sha256": "aac73b3148f6d1d7111dbca32099f68d26c644c6813ae1e4f05f6579aa2663fe",
+    "ecosystem": "python"
+  },
+  {
+    "package": "cryptography",
+    "version": "50.0.2",
+    "file": "python/cryptography-50.0.2/licenses/LICENSE.BSD",
+    "sha256": "602c4c7482de6479dd2e9793cda275e5e63d773dacd1eca689232ab7008fb4fb",
+    "ecosystem": "python"
+  },
+  {
+    "package": "pycparser",
+    "version": "3.12",
+    "file": "python/pycparser-3.12/licenses/LICENSE",
+    "sha256": "0a9e78156ae8b96caf1b4f11ac2df424b83de29736f9e757630548a6272fdf90",
+    "ecosystem": "python"
+  },
+  {
+    "package": "pluggy",
+    "version": "1.7.0",
+    "file": "python/pluggy-1.7.0/licenses/LICENSE",
+    "sha256": "d6b65e6c213a5d0b577911d34d6e5949b9f59d76c238c5071a2f3fc16cfb2606",
+    "ecosystem": "python"
+  },
+  {
+    "package": "argon2-cffi-bindings",
+    "version": "26.1.0",
+    "file": "python/argon2-cffi-bindings-26.1.0/licenses/LICENSE",
+    "sha256": "88707653d5414f2242d597302a769565107ac139817b8ca321b3928cc1346c50",
+    "ecosystem": "python"
+  },
+  {
+    "package": "urllib3",
+    "version": "2.8.0",
+    "file": "python/urllib3-2.8.0/licenses/LICENSE.txt",
+    "sha256": "130e3a64d5fdd5d096a752694634a7d9df284469de86e5732100268041e3d686",
+    "ecosystem": "python"
+  },
+  {
+    "package": "h11",
+    "version": "0.16.0",
+    "file": "python/h11-0.16.0/licenses/LICENSE.txt",
+    "sha256": "37db5bb85926db28a427a25867f10b1232003aea1be69ccb851138adb8e6f361",
+    "ecosystem": "python"
+  },
+  {
+    "package": "frozenlist",
+    "version": "1.8.0",
+    "file": "python/frozenlist-1.8.0/licenses/LICENSE",
+    "sha256": "6fd5243e92dd7f98ec69c7ac377728e74905709ff527a5bf98d6d0263c04f5b6",
+    "ecosystem": "python"
+  },
+  {
+    "package": "cffi",
+    "version": "2.1.1",
+    "file": "python/cffi-2.1.1/licenses/LICENSE",
+    "sha256": "5ba24ddc57067f9249add644c3afc41a5d6dc37e23433ef759d95df370b0af63",
+    "ecosystem": "python"
+  },
+  {
+    "package": "aiosignal",
+    "version": "1.4.0",
+    "file": "python/aiosignal-1.4.0/licenses/LICENSE",
+    "sha256": "6fd5243e92dd7f98ec69c7ac377728e74905709ff527a5bf98d6d0263c04f5b6",
+    "ecosystem": "python"
+  },
+  {
+    "package": "argon2-cffi",
+    "version": "25.1.0",
+    "file": "python/argon2-cffi-25.1.0/licenses/LICENSE",
+    "sha256": "b6944d386e87ccf49d9632da083685a4b7624733e686a7fe283dd2d428341d77",
+    "ecosystem": "python"
+  },
+  {
+    "package": "pytest",
+    "version": "9.2.0",
+    "file": "python/pytest-9.2.0/licenses/LICENSE",
+    "sha256": "ca836a5f9ecca3b2f350230faa20a48fb8b145653b5568d784862df864706b9b",
+    "ecosystem": "python"
+  },
+  {
+    "package": "annotated-types",
+    "version": "0.8.0",
+    "file": "python/annotated-types-0.8.0/licenses/LICENSE",
+    "sha256": "fe1049884b1a0d9342901e88e07f32925d24b3121d9972b6a6805fb9824b095d",
+    "ecosystem": "python"
+  },
+  {
+    "package": "annotated-doc",
+    "version": "0.0.5",
+    "file": "python/annotated-doc-0.0.5/licenses/LICENSE",
+    "sha256": "fff170779a6acbf65abdb405c087f1cee1786691e4a96a4034517e4a504a0cdf",
+    "ecosystem": "python"
+  },
+  {
+    "package": "typing-inspection",
+    "version": "0.4.4",
+    "file": "python/typing-inspection-0.4.4/licenses/LICENSE",
+    "sha256": "804b59b25f2c31bd278f9202a19ae49a3945aa2664387e2d0a128c7cacc61ec3",
+    "ecosystem": "python"
+  },
+  {
+    "package": "fastapi",
+    "version": "0.162.0",
+    "file": "python/fastapi-0.162.0/licenses/LICENSE",
+    "sha256": "4ec89ffc81485b97fec584b2d4a961032eeffe834453894fd9c1274906cc744e",
+    "ecosystem": "python"
+  },
+  {
+    "package": "aiohttp",
+    "version": "3.14.5",
+    "file": "python/aiohttp-3.14.5/licenses/LICENSE.txt",
+    "sha256": "2e4be5fc6c4c72a466fcb665d726e049a6891981fe536c4f04b6366749461d23",
+    "ecosystem": "python"
+  },
+  {
+    "package": "aiohttp",
+    "version": "3.14.5",
+    "file": "python/aiohttp-3.14.5/licenses/vendor/llhttp/LICENSE",
+    "sha256": "628168d68bb5a8a17e0bbefb3bd74e326e1edc20583d76f52f457c82c921867d",
+    "ecosystem": "python"
+  },
+  {
+    "package": "attrs",
+    "version": "26.1.0",
+    "file": "python/attrs-26.1.0/licenses/LICENSE",
+    "sha256": "882115c95dfc2af1eeb6714f8ec6d5cbcabf667caff8729f42420da63f714e9f",
+    "ecosystem": "python"
+  },
+  {
+    "package": "multidict",
+    "version": "7.2.1",
+    "file": "python/multidict-7.2.1/licenses/LICENSE",
+    "sha256": "2e4be5fc6c4c72a466fcb665d726e049a6891981fe536c4f04b6366749461d23",
+    "ecosystem": "python"
+  },
+  {
+    "package": "pywebpush",
+    "version": "2.5.0",
+    "file": "python/pywebpush-2.5.0/licenses/LICENSE",
+    "sha256": "1f256ecad192880510e84ad60474eab7589218784b9a50bc7ceee34c2b91f1d5",
+    "ecosystem": "python"
+  },
+  {
+    "package": "py-vapid",
+    "version": "1.9.6",
+    "file": "python/py-vapid-1.9.6/licenses/LICENSE",
+    "sha256": "1f256ecad192880510e84ad60474eab7589218784b9a50bc7ceee34c2b91f1d5",
+    "ecosystem": "python"
+  },
+  {
+    "package": "httpx",
+    "version": "0.28.1",
+    "file": "python/httpx-0.28.1/licenses/LICENSE.md",
+    "sha256": "4ec59d544f12b5f539a3a716fd321ac58ccd8030b465221f2c880200cdf28d8d",
+    "ecosystem": "python"
+  },
+  {
+    "package": "typing_extensions",
+    "version": "4.16.0",
+    "file": "python/typing_extensions-4.16.0/licenses/LICENSE",
+    "sha256": "3b2f81fe21d181c499c59a256c8e1968455d6689d269aa85373bfb6af41da3bf",
+    "ecosystem": "python"
+  },
+  {
+    "package": "charset-normalizer",
+    "version": "3.5.2",
+    "file": "python/charset-normalizer-3.5.2/licenses/LICENSE",
+    "sha256": "6d0d41bfe170ac6c7dc248c9a63e254d0fb45a60d50a8257d0af92c6e249b887",
+    "ecosystem": "python"
+  },
+  {
+    "package": "pillow",
+    "version": "12.3.0",
+    "file": "python/pillow-12.3.0/licenses/LICENSE",
+    "sha256": "dda12a98c1979cf3d94df1cff45d27a4cb3f04a60c76f76902ac54cac03ec0ce",
+    "ecosystem": "python"
+  },
+  {
+    "package": "anyio",
+    "version": "4.15.1",
+    "file": "python/anyio-4.15.1/licenses/LICENSE",
+    "sha256": "5361ac9dc58f2ef5fd2e9b09c68297c17f04950909bbc8023bdb82eacf22c2b0",
+    "ecosystem": "python"
+  },
+  {
+    "package": "idna",
+    "version": "3.20",
+    "file": "python/idna-3.20/licenses/LICENSE.md",
+    "sha256": "1a9a4f0e3d479a27240ddd59a9137a66ab4a0f9dfdc8ca6188cc0bfd85187f04",
+    "ecosystem": "python"
+  },
+  {
+    "package": "vscode-uri",
+    "version": "3.2.0",
+    "file": "npm/vscode-uri-3.2.0/LICENSE.md",
+    "sha256": "c669138cb1eb01fbb745e8e460b291e4f2869c14a40061390b6095d845ed4c82",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "tinyglobby",
+    "version": "0.2.17",
+    "file": "npm/tinyglobby-0.2.17/LICENSE",
+    "sha256": "22c68811e174cbbfb3813d4135918df4f540959c14d872e601d9abe83d3cde8f",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "obug",
+    "version": "3.0.0",
+    "file": "npm/obug-3.0.0/LICENSE",
+    "sha256": "ee48679d379ca6b4493d5e231094d85f818dd9be40b1a4f234fb7ff657ee35d9",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "mdurl",
+    "version": "2.1.0",
+    "file": "npm/mdurl-2.1.0/LICENSE",
+    "sha256": "6b6a356c4337e2446841f30f3cdf7e7023af8c5260b5e347c0f987b9f6aa2644",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "csstype",
+    "version": "3.2.3",
+    "file": "npm/csstype-3.2.3/LICENSE",
+    "sha256": "11d55bd4541c75ee7879547ac49089c489163dae49551389713c3d026cab383e",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "lightningcss-darwin-arm64",
+    "version": "1.33.0",
+    "file": "npm/lightningcss-darwin-arm64-1.33.0/LICENSE",
+    "sha256": "5eba353fe5076ac3432177f8ab1cf75e3afcd0584251e37c3bfead5f447d040e",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "std-env",
+    "version": "4.3.0",
+    "file": "npm/std-env-4.3.0/LICENCE",
+    "sha256": "a6f36438e46fb911859f3b9c4cad045ba64e1af3d8f4512c60258fa2d7552d28",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "estree-walker",
+    "version": "3.0.3",
+    "file": "npm/estree-walker-3.0.3/LICENSE",
+    "sha256": "8a6dcbabe7179f9c8489c08a7d874d0f1e093ae7449e03756ccf87cb9d0e296e",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "fake-indexeddb",
+    "version": "6.2.5",
+    "file": "npm/fake-indexeddb-6.2.5/LICENSE",
+    "sha256": "0c2e77addd3045b932ae0de86b7cf66aa1eeed4248d4dab37e851f9e5499d85e",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "chai",
+    "version": "6.3.0",
+    "file": "npm/chai-6.3.0/LICENSE",
+    "sha256": "b181da80336ff9dd1043fc8be1a764d7382363433319aa872e4d2cb5ce2a3066",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "detect-libc",
+    "version": "2.1.2",
+    "file": "npm/detect-libc-2.1.2/LICENSE",
+    "sha256": "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "crelt",
+    "version": "1.0.7",
+    "file": "npm/crelt-1.0.7/LICENSE",
+    "sha256": "23852ebf6aef7fadffc92514b3c5df163a8651f2c3ed0dbb494cb49d93bd5de5",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "nanoid",
+    "version": "3.3.20",
+    "file": "npm/nanoid-3.3.20/LICENSE",
+    "sha256": "da4db1480d9beea3483a2eda5c53b22238d0827d57da162b48f122e04d2d9987",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "rolldown",
+    "version": "1.2.16",
+    "file": "npm/rolldown-1.2.16/LICENSE",
+    "sha256": "23ecfff35a5a2e80d92142f75228912c3b1abc4b5a8337a821ff4397e2f9f734",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "vitest",
+    "version": "5.0.5",
+    "file": "npm/vitest-5.0.5/LICENSE.md",
+    "sha256": "78fbac9e571c2ee260deb2a1941a8a18f0a85e3f39c23d08e2dcee6da4841998",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "assertion-error",
+    "version": "2.0.1",
+    "file": "npm/assertion-error-2.0.1/LICENSE",
+    "sha256": "2130216d5ab4c02134f8247f32999feda0abe1eaf028218baeac445c19ce4cea",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "magic-string",
+    "version": "1.4.5",
+    "file": "npm/magic-string-1.4.5/LICENSE",
+    "sha256": "1cbe51b907662f6cb1492b16c359384a595180bf0e4d101603ed525e75c4e484",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "argparse",
+    "version": "3.0.4",
+    "file": "npm/argparse-3.0.4/LICENSE",
+    "sha256": "ab745c5061d1dea43a3885e5b4b6befc7e983954954775c5736debeefcdfd89b",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "picomatch",
+    "version": "4.0.7",
+    "file": "npm/picomatch-4.0.7/LICENSE",
+    "sha256": "d0cd141b0c322fded5dfad1d4645bb2fedfc05b7321fe1009469638190d59ef9",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "typescript",
+    "version": "5.9.3",
+    "file": "npm/typescript-5.9.3/LICENSE.txt",
+    "sha256": "a7d00bfd54525bc694b6e32f64c7ebcf5e6b7ae3657be5cc12767bce74654a47",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "punycode.js",
+    "version": "2.3.1",
+    "file": "npm/punycode.js-2.3.1/LICENSE-MIT.txt",
+    "sha256": "483acb265f182907d1caf6cff9c16c96f31325ed23792832cc5d8b12d5f88c8a",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "vue",
+    "version": "3.5.44",
+    "file": "npm/vue-3.5.44/LICENSE",
+    "sha256": "1bb85cc9b13b81ef41c81c51866172fc345e0503c86726a6755b796590b70175",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "postcss",
+    "version": "8.5.32",
+    "file": "npm/postcss-8.5.32/LICENSE",
+    "sha256": "5be1f3465bba68a626777f984878814aaf35e7ef8e9fd314d469bcf887050fb8",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "path-browserify",
+    "version": "1.0.1",
+    "file": "npm/path-browserify-1.0.1/LICENSE",
+    "sha256": "a22b9d5763f574e5db347c30acc0b33eaf4846767c03d2e27d012e864e79a824",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "w3c-keyname",
+    "version": "2.2.8",
+    "file": "npm/w3c-keyname-2.2.8/LICENSE",
+    "sha256": "869c30f368eb08735e779027b9f4bc9fea2f39624351856aebe42741f0bc0884",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "muggle-string",
+    "version": "0.4.1",
+    "file": "npm/muggle-string-0.4.1/LICENSE",
+    "sha256": "df52411dcd3c8f5897bbbec8c94e971519e13e75818c263e9a99a86255dd301b",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "fdir",
+    "version": "6.5.0",
+    "file": "npm/fdir-6.5.0/LICENSE",
+    "sha256": "9a39f2aadab11a3697edd668ff2d8ad885b649737b7ab4d3bf12b34e5ada0c86",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "tinybench",
+    "version": "6.2.2",
+    "file": "npm/tinybench-6.2.2/LICENSE",
+    "sha256": "cebc084d54e6dd99e53292ddb4bc1cdb63d9bfcd9ce438fe3aa6eb106d79e2ea",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "style-mod",
+    "version": "4.1.4",
+    "file": "npm/style-mod-4.1.4/LICENSE",
+    "sha256": "cb4474e26547397169061d3586c00022cda5330a1b64fa13e872319f3b63aff1",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "picocolors",
+    "version": "1.1.1",
+    "file": "npm/picocolors-1.1.1/LICENSE",
+    "sha256": "6582629e2979466878f6014313dcc2f3756c9616148682227ce3063dde310750",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "vite",
+    "version": "8.3.5",
+    "file": "npm/vite-8.3.5/LICENSE.md",
+    "sha256": "a22152baa1aef74402443008e767e7c689a524c0909d19b0431d97f5ab066a13",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "markdown-it",
+    "version": "15.0.3",
+    "file": "npm/markdown-it-15.0.3/LICENSE",
+    "sha256": "792c48c5a849a15fdf9e37e8bcf9e6d1dd13b32b46c642a748a0a46a9919d473",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "uc.micro",
+    "version": "3.0.0",
+    "file": "npm/uc.micro-3.0.0/LICENSE.txt",
+    "sha256": "483acb265f182907d1caf6cff9c16c96f31325ed23792832cc5d8b12d5f88c8a",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "vue-tsc",
+    "version": "3.1.8",
+    "file": "npm/vue-tsc-3.1.8/LICENSE",
+    "sha256": "a56351045b45475385a9479d7310208ff0be9489babdb4e635fcea5d7dc1fb02",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "linkify-it",
+    "version": "6.1.0",
+    "file": "npm/linkify-it-6.1.0/LICENSE",
+    "sha256": "95e3f7f0e81e9b4940cdfaa1956aaff5e4dfd2fb1565041e7c78eb9a606f23e3",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "expect-type",
+    "version": "1.4.0",
+    "file": "npm/expect-type-1.4.0/LICENSE",
+    "sha256": "7c6cc83c84eaa249a85bf12fe3eedd831bb50c696e8890b5248223ae68c7b408",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "es-module-lexer",
+    "version": "2.3.2",
+    "file": "npm/es-module-lexer-2.3.2/LICENSE",
+    "sha256": "8a4b6c44eebfb026d23719a348145a661a555568dbfdc11618ff2d0dd9306b00",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "why-is-node-running",
+    "version": "3.2.1",
+    "file": "npm/why-is-node-running-3.2.1/LICENSE",
+    "sha256": "6a134e51aa31496c15a741592fc5d782b2dbf8d8b6b8524e15c8520ae0cd6374",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "tinyexec",
+    "version": "1.3.1",
+    "file": "npm/tinyexec-1.3.1/LICENSE",
+    "sha256": "f95f668fe64081ddb4153b322e34fdd719b991285ed08177d5ad7133b7988d92",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "dompurify",
+    "version": "3.4.17",
+    "file": "npm/dompurify-3.4.17/LICENSE",
+    "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "dompurify",
+    "version": "3.4.17",
+    "file": "npm/dompurify-3.4.17/LICENSE-MPL",
+    "sha256": "fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "alien-signals",
+    "version": "3.2.1",
+    "file": "npm/alien-signals-3.2.1/LICENSE",
+    "sha256": "75863f712f8f0603b0dba33edf4b725bab80fc858a51756e5905a3c4c8087169",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "entities",
+    "version": "7.0.1",
+    "file": "npm/entities-7.0.1/LICENSE",
+    "sha256": "cb992345949ccd6e8394b2cd6c465f7b897c864f845937dbf64e8997f389e164",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "fsevents",
+    "version": "2.3.3",
+    "file": "npm/fsevents-2.3.3/LICENSE",
+    "sha256": "2a8a5d6197bb97a018b8a190dd3ed853d750ca87c8e80c17aad41d6c6ff448e1",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "lightningcss",
+    "version": "1.33.0",
+    "file": "npm/lightningcss-1.33.0/LICENSE",
+    "sha256": "5eba353fe5076ac3432177f8ab1cf75e3afcd0584251e37c3bfead5f447d040e",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "source-map-js",
+    "version": "1.2.2",
+    "file": "npm/source-map-js-1.2.2/LICENSE",
+    "sha256": "6cb0631f71c7749763fd3dd1d5bee52dd1070ec17f2edc1710079ad070bd2fbd",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "@oxc-project/types",
+    "version": "0.156.0",
+    "file": "npm/_oxc-project_types-0.156.0/LICENSE",
+    "sha256": "95ced5ecf1133fbf41d409b5555c86c344f83f3b019926057ddbc07cfdcc27b3",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "@lezer/css",
+    "version": "1.3.9",
+    "file": "npm/_lezer_css-1.3.9/LICENSE",
+    "sha256": "568902fb66eaf1f11750e966b33fd7b5d7c618e65af09f35ef843635bcf5f1ba",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "@lezer/highlight",
+    "version": "1.2.5",
+    "file": "npm/_lezer_highlight-1.2.5/LICENSE",
+    "sha256": "568902fb66eaf1f11750e966b33fd7b5d7c618e65af09f35ef843635bcf5f1ba",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "@lezer/markdown",
+    "version": "1.8.1",
+    "file": "npm/_lezer_markdown-1.8.1/LICENSE",
+    "sha256": "54bd812a6d334e0c438b78a43cea74b67e882739fd3450115ddc7c52be5706c1",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "@lezer/html",
+    "version": "1.3.13",
+    "file": "npm/_lezer_html-1.3.13/LICENSE",
+    "sha256": "568902fb66eaf1f11750e966b33fd7b5d7c618e65af09f35ef843635bcf5f1ba",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "@lezer/common",
+    "version": "1.5.5",
+    "file": "npm/_lezer_common-1.5.5/LICENSE",
+    "sha256": "568902fb66eaf1f11750e966b33fd7b5d7c618e65af09f35ef843635bcf5f1ba",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "@lezer/lr",
+    "version": "1.4.12",
+    "file": "npm/_lezer_lr-1.4.12/LICENSE",
+    "sha256": "568902fb66eaf1f11750e966b33fd7b5d7c618e65af09f35ef843635bcf5f1ba",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "@lezer/javascript",
+    "version": "1.5.6",
+    "file": "npm/_lezer_javascript-1.5.6/LICENSE",
+    "sha256": "568902fb66eaf1f11750e966b33fd7b5d7c618e65af09f35ef843635bcf5f1ba",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "@jridgewell/sourcemap-codec",
+    "version": "1.6.0",
+    "file": "npm/_jridgewell_sourcemap-codec-1.6.0/LICENSE",
+    "sha256": "769d154fbde32a915af110b1123650bc79f4cbe675acc66e005265bf069c6c6c",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "@jridgewell/trace-mapping",
+    "version": "0.3.31",
+    "file": "npm/_jridgewell_trace-mapping-0.3.31/LICENSE",
+    "sha256": "769d154fbde32a915af110b1123650bc79f4cbe675acc66e005265bf069c6c6c",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "@jridgewell/resolve-uri",
+    "version": "3.1.2",
+    "file": "npm/_jridgewell_resolve-uri-3.1.2/LICENSE",
+    "sha256": "b8778b155bfde5a28b023a558753c0fa058a52bb9de35c343c250be1bbcdedab",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "@vitest/spy",
+    "version": "5.0.5",
+    "file": "npm/_vitest_spy-5.0.5/LICENSE",
+    "sha256": "04575fc5bfae19a9b63100f8691f901a2e15a399011ac02db435a9ef27295551",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "@vitest/mocker",
+    "version": "5.0.5",
+    "file": "npm/_vitest_mocker-5.0.5/LICENSE",
+    "sha256": "04575fc5bfae19a9b63100f8691f901a2e15a399011ac02db435a9ef27295551",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "@babel/helper-string-parser",
+    "version": "7.29.11",
+    "file": "npm/_babel_helper-string-parser-7.29.11/LICENSE",
+    "sha256": "117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "@babel/types",
+    "version": "7.29.11",
+    "file": "npm/_babel_types-7.29.11/LICENSE",
+    "sha256": "117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "@babel/parser",
+    "version": "7.29.12",
+    "file": "npm/_babel_parser-7.29.12/LICENSE",
+    "sha256": "2e97627cb278aa7556fb9e8817368302301a595b6c7582512b8d74c57b773652",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "@babel/helper-validator-identifier",
+    "version": "7.29.7",
+    "file": "npm/_babel_helper-validator-identifier-7.29.7/LICENSE",
+    "sha256": "117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "entities",
+    "version": "8.1.0",
+    "file": "npm/entities-8.1.0/LICENSE",
+    "sha256": "cb992345949ccd6e8394b2cd6c465f7b897c864f845937dbf64e8997f389e164",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "@vitejs/plugin-vue",
+    "version": "6.0.10",
+    "file": "npm/_vitejs_plugin-vue-6.0.10/LICENSE",
+    "sha256": "29b68325fe026047d13e187b44c33b2acacf7dc647dec4583702e59f235e13b5",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "@vue/compiler-core",
+    "version": "3.5.44",
+    "file": "npm/_vue_compiler-core-3.5.44/LICENSE",
+    "sha256": "1bb85cc9b13b81ef41c81c51866172fc345e0503c86726a6755b796590b70175",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "@vue/runtime-dom",
+    "version": "3.5.44",
+    "file": "npm/_vue_runtime-dom-3.5.44/LICENSE",
+    "sha256": "1bb85cc9b13b81ef41c81c51866172fc345e0503c86726a6755b796590b70175",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "@vue/compiler-sfc",
+    "version": "3.5.44",
+    "file": "npm/_vue_compiler-sfc-3.5.44/LICENSE",
+    "sha256": "1bb85cc9b13b81ef41c81c51866172fc345e0503c86726a6755b796590b70175",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "@vue/shared",
+    "version": "3.5.44",
+    "file": "npm/_vue_shared-3.5.44/LICENSE",
+    "sha256": "1bb85cc9b13b81ef41c81c51866172fc345e0503c86726a6755b796590b70175",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "@vue/language-core",
+    "version": "3.1.8",
+    "file": "npm/_vue_language-core-3.1.8/LICENSE",
+    "sha256": "a56351045b45475385a9479d7310208ff0be9489babdb4e635fcea5d7dc1fb02",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "@vue/server-renderer",
+    "version": "3.5.44",
+    "file": "npm/_vue_server-renderer-3.5.44/LICENSE",
+    "sha256": "1bb85cc9b13b81ef41c81c51866172fc345e0503c86726a6755b796590b70175",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "@vue/reactivity",
+    "version": "3.5.44",
+    "file": "npm/_vue_reactivity-3.5.44/LICENSE",
+    "sha256": "1bb85cc9b13b81ef41c81c51866172fc345e0503c86726a6755b796590b70175",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "@vue/runtime-core",
+    "version": "3.5.44",
+    "file": "npm/_vue_runtime-core-3.5.44/LICENSE",
+    "sha256": "1bb85cc9b13b81ef41c81c51866172fc345e0503c86726a6755b796590b70175",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "@vue/compiler-dom",
+    "version": "3.5.44",
+    "file": "npm/_vue_compiler-dom-3.5.44/LICENSE",
+    "sha256": "1bb85cc9b13b81ef41c81c51866172fc345e0503c86726a6755b796590b70175",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "@vue/compiler-ssr",
+    "version": "3.5.44",
+    "file": "npm/_vue_compiler-ssr-3.5.44/LICENSE",
+    "sha256": "1bb85cc9b13b81ef41c81c51866172fc345e0503c86726a6755b796590b70175",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "estree-walker",
+    "version": "2.0.2",
+    "file": "npm/estree-walker-2.0.2/LICENSE",
+    "sha256": "8a6dcbabe7179f9c8489c08a7d874d0f1e093ae7449e03756ccf87cb9d0e296e",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "magic-string",
+    "version": "0.30.21",
+    "file": "npm/magic-string-0.30.21/LICENSE",
+    "sha256": "1cbe51b907662f6cb1492b16c359384a595180bf0e4d101603ed525e75c4e484",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "@codemirror/lint",
+    "version": "6.9.7",
+    "file": "npm/_codemirror_lint-6.9.7/LICENSE",
+    "sha256": "05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "@codemirror/autocomplete",
+    "version": "6.20.4",
+    "file": "npm/_codemirror_autocomplete-6.20.4/LICENSE",
+    "sha256": "05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "@codemirror/streamparser",
+    "version": "6.0.0",
+    "file": "npm/_codemirror_streamparser-6.0.0/LICENSE",
+    "sha256": "05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "@codemirror/lang-html",
+    "version": "6.4.12",
+    "file": "npm/_codemirror_lang-html-6.4.12/LICENSE",
+    "sha256": "05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "@codemirror/language",
+    "version": "6.13.1",
+    "file": "npm/_codemirror_language-6.13.1/LICENSE",
+    "sha256": "05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "@codemirror/state",
+    "version": "6.7.6",
+    "file": "npm/_codemirror_state-6.7.6/LICENSE",
+    "sha256": "05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "@codemirror/lang-markdown",
+    "version": "6.5.2",
+    "file": "npm/_codemirror_lang-markdown-6.5.2/LICENSE",
+    "sha256": "05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "@codemirror/lang-css",
+    "version": "6.3.1",
+    "file": "npm/_codemirror_lang-css-6.3.1/LICENSE",
+    "sha256": "05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "@codemirror/view",
+    "version": "6.43.15",
+    "file": "npm/_codemirror_view-6.43.15/LICENSE",
+    "sha256": "05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "@codemirror/lang-javascript",
+    "version": "6.2.5",
+    "file": "npm/_codemirror_lang-javascript-6.2.5/LICENSE",
+    "sha256": "05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "@codemirror/commands",
+    "version": "6.11.1",
+    "file": "npm/_codemirror_commands-6.11.1/LICENSE",
+    "sha256": "05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "@marijn/find-cluster-break",
+    "version": "1.0.4",
+    "file": "npm/_marijn_find-cluster-break-1.0.4/LICENSE",
+    "sha256": "9360b00fdd091f05c783b568bdd46c679c41b72415599252de98949462ea1acb",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "@volar/typescript",
+    "version": "2.4.26",
+    "file": "npm/_volar_typescript-2.4.26/LICENSE",
+    "sha256": "a56351045b45475385a9479d7310208ff0be9489babdb4e635fcea5d7dc1fb02",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "@volar/language-core",
+    "version": "2.4.26",
+    "file": "npm/_volar_language-core-2.4.26/LICENSE",
+    "sha256": "a56351045b45475385a9479d7310208ff0be9489babdb4e635fcea5d7dc1fb02",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "@volar/source-map",
+    "version": "2.4.26",
+    "file": "npm/_volar_source-map-2.4.26/LICENSE",
+    "sha256": "a56351045b45475385a9479d7310208ff0be9489babdb4e635fcea5d7dc1fb02",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "@rolldown/pluginutils",
+    "version": "1.0.1",
+    "file": "npm/_rolldown_pluginutils-1.0.1/LICENSE",
+    "sha256": "e1919b3b98b8bf6c1b99fcc60a0ed46027c97ac947432e1278446c9606f50161",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "@types/chai",
+    "version": "5.2.3",
+    "file": "npm/_types_chai-5.2.3/LICENSE",
+    "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "@types/deep-eql",
+    "version": "4.0.2",
+    "file": "npm/_types_deep-eql-4.0.2/LICENSE",
+    "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "@types/trusted-types",
+    "version": "2.0.7",
+    "file": "npm/_types_trusted-types-2.0.7/LICENSE",
+    "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383",
+    "ecosystem": "npm"
+  },
+  {
+    "package": "@types/estree",
+    "version": "1.0.10",
+    "file": "npm/_types_estree-1.0.10/LICENSE",
+    "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383",
+    "ecosystem": "npm"
+  }
+]

@@ -29,6 +29,8 @@ def valid(db,outbox,*,include_ignored=False,for_delivery=True):
     recurrence=json.loads(record['recurrence_json']) if record['recurrence_json'] else None
     schedule=json.loads(record['schedule_json']) if record['schedule_json'] else None
     if not rule or event['rule_signature']!=signature(rule,recurrence,schedule):return False
+    from .lifecycle import event_is_archived
+    if event_is_archived(record,event,rule):return False
     if not rule['all_members'] and event['user_id'] not in rule['recipient_ids']:return False
     if not include_ignored and db.execute('SELECT 1 FROM memo_message_ignores WHERE user_id=? AND event_id=? AND source_restore_id=?',(outbox['user_id'],event['id'],state['restore_id'])).fetchone():return False
     return True

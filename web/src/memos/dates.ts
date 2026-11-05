@@ -8,13 +8,14 @@ export function dayLabel(day: string): string {
   return new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric', weekday: 'short' }).format(new Date(`${day}T12:00:00`))
 }
 export function scheduleOnDay(record: ScheduleView, day: string): boolean {
-  if(record.recurrence)return record.occurrences?.some(occurrence=>occurrence.date===day)??false
+  if(record.archived)return false
+  if(record.recurrence&&!record.occurrence_key)return record.occurrences?.some(occurrence=>occurrence.date===day)??false
   const end = record.end_date ?? record.start_date
   // A timed event ending at midnight does not occupy the following day.
   return record.start_date <= day && (day < end || day === end && (!record.start_time || !record.end_time || record.end_time !== '00:00' || record.start_date === end))
 }
 export function schedulesForDay(records:ScheduleView[],day:string):ScheduleView[]{
- return records.filter(record=>!record.archived).flatMap(record=>record.recurrence?(record.occurrences??[]).filter(o=>o.date===day).map(occurrence=>({...record,start_date:occurrence.start_date,end_date:occurrence.end_date,start_time:occurrence.start_time,end_time:occurrence.end_time,occurrence_key:`${record.id}:${occurrence.start_date}:${occurrence.date}`,occurrences:[occurrence]})):scheduleOnDay(record,day)?[record]:[]).sort(compareSchedules)
+ return records.filter(record=>!record.archived).flatMap(record=>record.recurrence&&!record.occurrence_key?(record.occurrences??[]).filter(o=>o.date===day).map(occurrence=>({...record,start_date:occurrence.start_date,end_date:occurrence.end_date,start_time:occurrence.start_time,end_time:occurrence.end_time,occurrence_date:occurrence.start_date,occurrence_key:`${record.id}:${occurrence.start_date}:${occurrence.date}`,occurrences:[occurrence]})):scheduleOnDay(record,day)?[record]:[]).sort(compareSchedules)
 }
 export function compareSchedules(a: ScheduleView, b: ScheduleView): number {
   if (!a.start_time && !b.start_time) return alphabetic.compare(a.title, b.title)

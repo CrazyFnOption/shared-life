@@ -1,5 +1,5 @@
 import type { MemoOccurrence } from './calendarCache'
-import type { MemoOperation, MemoReminder, MemoRecurrence } from './domain'
+import type { MemoOperation, MemoReminder, MemoRecurrence, MemoSchedule } from './domain'
 import type { Source } from '../types'
 
 /** Presentation contracts only. The transport and IDB contracts belong to the host. */
@@ -31,6 +31,9 @@ interface RecordView {
   attachments: MemoAttachmentView[]
   pending?: boolean
   error?: string
+  completed?: boolean
+  archived_at?: string | null
+  archived_time_unknown?: boolean
   archived?: boolean
   deleted?: boolean
   can_delete?: boolean
@@ -49,6 +52,9 @@ export interface MemoView extends RecordView {
 export interface ScheduleView extends RecordView {
   kind: 'schedule'
   occurrence_key?: string
+  occurrence_date?: string
+  series_schedule?: MemoSchedule
+  auto_archive_suppressed?: boolean
   occurrences?: MemoOccurrence[]
   occurrence_months?: string[]
   start_date: string

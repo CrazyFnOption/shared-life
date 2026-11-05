@@ -3,7 +3,7 @@ import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import type { MemoAttachmentView } from './types'
 import { trapDialogTab } from './dialog'
 
-const props = withDefaults(defineProps<{ files: MemoAttachmentView[]; editable?: boolean; disabled?: boolean }>(), { editable: false, disabled: false })
+const props = withDefaults(defineProps<{ files: MemoAttachmentView[]; editable?: boolean; disabled?: boolean; embedded?: boolean }>(), { editable: false, disabled: false, embedded: false })
 const emit = defineEmits<{ add: [files: MemoAttachmentView[]]; remove: [id: string]; request: [file: MemoAttachmentView] }>()
 const photos = ref<HTMLInputElement>()
 const documents = ref<HTMLInputElement>()
@@ -39,11 +39,11 @@ function previewable(file: MemoAttachmentView) { return /^image\/(png|jpeg|gif|w
 </script>
 
 <template>
-  <section class="memo-assets" aria-label="照片与附件">
-    <h3>照片与附件</h3>
+  <section class="memo-assets" :class="{ 'memo-assets-embedded': embedded }" aria-label="照片与附件">
+    <h3 v-if="!embedded">照片与附件</h3>
     <div v-if="editable" class="memo-file-controls">
-      <button type="button" class="memo-secondary" :disabled="disabled" @click="photos?.click()">＋ 照片</button>
-      <button type="button" class="memo-secondary" :disabled="disabled" @click="documents?.click()">＋ 附件</button>
+      <button type="button" class="memo-secondary" :disabled="disabled" @click="photos?.click()">{{ embedded ? '＋ 添加图片' : '＋ 照片' }}</button>
+      <button type="button" class="memo-secondary" :disabled="disabled" @click="documents?.click()">{{ embedded ? '＋ 添加文件' : '＋ 附件' }}</button>
       <input ref="photos" type="file" accept="image/*" multiple hidden aria-label="选择照片" @change="choose">
       <input ref="documents" type="file" multiple hidden aria-label="选择附件" @change="choose">
     </div>

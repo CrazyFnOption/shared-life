@@ -60,6 +60,8 @@ def memo_dto(db,row):
     result.update(family_id=row['namespace'] if row['scope']=='shared' else None,attachments=descriptors(db,row['id']))
     result.update({key:bool(row[key]) for key in ('completed','archived','deleted')})
     result.update({key:json.loads(row[key+'_json']) if row[key+'_json'] else None for key in ('schedule','reminders','recurrence')})
+    from .lifecycle import metadata
+    result.update(metadata(db,row))
     return result
 
 
@@ -218,17 +220,43 @@ def apply_record(db,user_id,body,src):
             db.execute('INSERT INTO memos(id,scope,namespace,author_id,updated_by,category_id,title,body_markdown,version,created_at,updated_at,kind,schedule_json,reminders_json,recurrence_json) VALUES(?,?,?,?,?,?,?,?,1,?,?,?,?,?,?)',(entity_id,src['scope'],ns,user_id,user_id,data['category_id'],data['title'],data['body_markdown'],now,now,data['kind'],schedule,json.dumps(data['reminders']),recurrence))
         else:
             db.execute('UPDATE memos SET category_id=?,title=?,body_markdown=?,kind=?,schedule_json=?,reminders_json=?,recurrence_json=?,updated_by=?,version=version+1,updated_at=? WHERE id=?',(data['category_id'],data['title'],data['body_markdown'],data['kind'],schedule,json.dumps(data['reminders']),recurrence,user_id,now,entity_id))
+        if existing and (existing['schedule_json']!=schedule or existing['recurrence_json']!=recurrence):
+            from .lifecycle import state,save
+            lifecycle=state(existing);lifecycle.pop('suppressed',None)
+            # Preserve archived dates/timestamps when editing the future series.
+            lifecycle['occurrences']={day:entry for day,entry in lifecycle.get('occurrences',{}).items() if entry.get('archived_at')}
+            save(db,entity_id,lifecycle)
         manifest(db,user_id,entity_id,data['attachments'])
-    elif kind=='complete':
-        data=parse(models.CompleteData,body.data)
-        if existing['kind']!='memo' or existing['archived']:fail('memo_not_completable')
-        db.execute('UPDATE memos SET completed=?,completed_at=?,updated_by=?,version=version+1,updated_at=? WHERE id=?',(int(data['completed']),now if data['completed'] else None,user_id,now,entity_id))
-        if data['completed']:
-            from .events import cancel_completed_events
-            cancel_completed_events(db,entity_id,now)
-    elif kind=='archive':
-        data=parse(models.ArchiveData,body.data)
-        db.execute('UPDATE memos SET archived=?,updated_by=?,version=version+1,updated_at=? WHERE id=?',(int(data['archived']),user_id,now,entity_id))
+    elif kind in ('complete','archive'):
+        from .lifecycle import state,save,occurrence_day,occurrence_schedule
+        from .calendar import local_time
+        data=parse(models.CompleteData if kind=='complete' else models.ArchiveData,body.data)
+        lifecycle=state(existing);record=memo_dto(db,existing)
+        occurrence=occurrence_day(record,data.get('occurrence_date'),local_time(now))
+        desired=data['completed'] if kind=='complete' else data['archived']
+        if occurrence:
+            entries=lifecycle.setdefault('occurrences',{});previous=entries.get(occurrence,{})
+            entries[occurrence]={'archived_at':(previous.get('archived_at') or now) if desired else None,
+                                 'completed':desired if kind=='complete' else previous.get('completed',False) if desired else False,
+                                 'suppressed':not desired,'schedule':previous.get('schedule') or occurrence_schedule(record['schedule'],occurrence)}
+        else:
+            if desired:
+                lifecycle.update(archived_at=lifecycle.get('archived_at') or record.get('archived_at') or now,reason=kind)
+                lifecycle.pop('suppressed',None)
+            else:
+                lifecycle.pop('archived_at',None);lifecycle.pop('reason',None);lifecycle['suppressed']=True
+            completed=desired if kind=='complete' else bool(existing['completed']) if desired else False
+            db.execute('UPDATE memos SET completed=?,completed_at=?,archived=? WHERE id=?',
+                       (int(completed),existing['completed_at'] or now if completed else None,int(desired),entity_id))
+        save(db,entity_id,lifecycle)
+        db.execute('UPDATE memos SET updated_by=?,version=version+1,updated_at=? WHERE id=?',(user_id,now,entity_id))
+        if desired:
+            if occurrence:
+                from .lifecycle import cancel_occurrence_events
+                cancel_occurrence_events(db,entity_id)
+            else:
+                from .events import cancel_completed_events
+                cancel_completed_events(db,entity_id,now)
     elif kind in ('delete','restore'):
         parse(models.Empty,body.data)
         if user_id!=existing['author_id']:fail('creator_required',403)

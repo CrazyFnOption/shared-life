@@ -35,7 +35,7 @@ def generate(db,now,*,scope=None,namespace=None):
     state=db.execute('SELECT restore_id,automation_paused FROM app_state WHERE singleton=1').fetchone()
     if state['automation_paused']:return
     now=now.astimezone(ZONE);today=now.date();restore=state['restore_id']
-    sql='SELECT * FROM memos WHERE deleted=0 AND archived=0'
+    sql="SELECT * FROM memos WHERE deleted=0 AND (archived=0 OR (kind='memo' AND completed=1 AND recurrence_json IS NOT NULL))"
     args=()
     if scope is not None:sql+=' AND scope=? AND namespace=?';args=(scope,namespace)
     for row in db.execute(sql,args).fetchall():
@@ -43,6 +43,8 @@ def generate(db,now,*,scope=None,namespace=None):
             if not db.execute('SELECT 1 FROM families WHERE id=? AND archived=0',(row['namespace'],)).fetchone():continue
             members={r['user_id']:r['relation_epoch'] for r in db.execute('SELECT user_id,relation_epoch FROM family_members WHERE family_id=? AND active=1',(row['namespace'],))}
         else:members={row['namespace']:0}
+        from .lifecycle import expire,state as lifecycle_state,save as save_lifecycle
+        row=expire(db,row,now)
         record=memo_dto(db,row);recurrence=record['recurrence'];rules=record['reminders']
         # Also settle due events from an older program before a fixed-cycle reopen.
         if row['completed'] and row['completed_at']:cancel_completed_events(db,row['id'],row['completed_at'])
@@ -53,11 +55,13 @@ def generate(db,now,*,scope=None,namespace=None):
                 boundary=anchor(cycle)
                 completed_at=local_time(row['completed_at']) if row['completed_at'] else None
                 if row['completed'] and completed_at and boundary>completed_at:
-                    db.execute('UPDATE memos SET completed=0,completed_at=NULL,last_cycle=?,version=version+1,updated_at=? WHERE id=?',(cycle.isoformat(),now.isoformat(),row['id']))
+                    lifecycle=lifecycle_state(row);lifecycle.pop('archived_at',None);lifecycle.pop('reason',None);lifecycle.pop('suppressed',None)
+                    save_lifecycle(db,row['id'],lifecycle)
+                    db.execute('UPDATE memos SET completed=0,completed_at=NULL,archived=0,last_cycle=?,version=version+1,updated_at=? WHERE id=?',(cycle.isoformat(),now.isoformat(),row['id']))
                     from .deletions import invalidate
                     invalidate(db,row['id']);row=db.execute('SELECT * FROM memos WHERE id=?',(row['id'],)).fetchone();record=memo_dto(db,row)
                 elif row['last_cycle']!=cycle.isoformat():db.execute('UPDATE memos SET last_cycle=? WHERE id=?',(cycle.isoformat(),row['id']))
-        if row['kind']=='memo' and record['completed']:continue
+        if record['archived'] or record['completed']:continue
         for rule in rules:
             if rule['mode']=='relative':
                 schedule=record['schedule'];base=anchor(schedule['start_date'],schedule['start_time']);offset=timedelta(minutes=rule['offset_minutes'])
@@ -72,6 +76,9 @@ def generate(db,now,*,scope=None,namespace=None):
                 due=[initial+timedelta(days=(planned_day-origin).days) for planned_day in planned]
             else:due=[initial]
             for when in due:
+                if row['kind']=='schedule' and recurrence:
+                    occurrence=(when.date()-timedelta(days=shift)).isoformat()
+                    if lifecycle_state(row).get('occurrences',{}).get(occurrence,{}).get('archived_at'):continue
                 if when.date()!=today or when>now:continue
                 recipients=set(members) if rule['all_members'] else set(rule['recipient_ids'])
                 for uid in sorted(recipients & members.keys()):
@@ -85,12 +92,14 @@ def messages(db,user_id,*,include_ignored=False):
     from .service import source,namespace
     src=source(db,user_id);ns=namespace(src);result=[]
     ignored={r[0] for r in db.execute('SELECT event_id FROM memo_message_ignores WHERE user_id=? AND source_restore_id=? AND scope=? AND namespace=?',(user_id,src['restore_id'],src['scope'],ns))}
-    for row in db.execute("SELECT e.*,m.title,m.version,m.completed,m.archived,m.deleted,m.reminders_json,m.recurrence_json,m.schedule_json FROM memo_reminder_events e JOIN memos m ON m.id=e.memo_id WHERE e.user_id=? AND e.scope=? AND e.namespace=? AND e.source_restore_id=? AND e.status='ready'",(user_id,src['scope'],ns,src['restore_id'])):
+    for row in db.execute("SELECT e.*,m.title,m.version,m.kind,m.completed,m.archived,m.deleted,m.reminders_json,m.recurrence_json,m.schedule_json,m.archive_state_json FROM memo_reminder_events e JOIN memos m ON m.id=e.memo_id WHERE e.user_id=? AND e.scope=? AND e.namespace=? AND e.source_restore_id=? AND e.status='ready'",(user_id,src['scope'],ns,src['restore_id'])):
         if row['archived'] or row['deleted'] or row['completed'] or (row['relation_epoch'] or 0)!=src['relation_epoch'] or row['rule_id'] not in {r['id'] for r in json.loads(row['reminders_json'])}:continue
         rule=next(r for r in json.loads(row['reminders_json']) if r['id']==row['rule_id'])
         recurrence=json.loads(row['recurrence_json']) if row['recurrence_json'] else None
         schedule=json.loads(row['schedule_json']) if row['schedule_json'] else None
         if row['rule_signature']!=signature(rule,recurrence,schedule):continue
+        from .lifecycle import event_is_archived
+        if event_is_archived(row,row,rule):continue
         result.append({'id':row['id'],'kind':'reminder','target_type':'memo','target_id':row['memo_id'],'record_id':row['memo_id'],'title':row['title'],'created_at':row['created_at'],'source':src})
     for row in db.execute("SELECT r.*,m.title FROM memo_deletion_requests r JOIN memos m ON m.id=r.memo_id WHERE r.author_id=? AND r.status='pending' AND m.scope=? AND m.namespace=? AND m.deleted=0 AND m.version=r.target_version AND r.source_restore_id=?",(user_id,src['scope'],ns,src['restore_id'])):
         requester=families.relation(db,row['requester_id'],src['family_id']) if src['scope']=='shared' else None

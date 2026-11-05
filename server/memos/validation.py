@@ -21,7 +21,9 @@ def validate(db):
             if not cat or (cat['scope'],cat['namespace'])!=(row['scope'],row['namespace']) or cat['deleted']:bad()
         elif row['category_id'] is not None or not row['schedule_json']:bad()
         data={'category_id':row['category_id'],'title':row['title'],'body_markdown':row['body_markdown'],'kind':row['kind'],'schedule':json.loads(row['schedule_json']) if row['schedule_json'] else None,'reminders':json.loads(row['reminders_json']),'recurrence':json.loads(row['recurrence_json']) if row['recurrence_json'] else None,'attachments':[]}
-        try:models.MemoData.model_validate(data)
+        try:
+            models.MemoData.model_validate(data)
+            if 'archive_state_json' in row.keys():models.ArchiveState.model_validate(json.loads(row['archive_state_json']))
         except Exception:bad()
         rules=data['reminders']
         if len({r['id'] for r in rules})!=len(rules) or any(not set(r['recipient_ids'])<=people for r in rules):bad()

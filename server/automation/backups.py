@@ -8,7 +8,7 @@ from pathlib import Path
 import sqlite3
 from uuid import uuid4
 from PIL import Image
-from server.accounting.db import connect, initialize_database, migrate_database, preflight
+from server.accounting.db import SCHEMA_VERSION, connect, initialize_database, migrate_database, preflight
 from server.automation.reports import state
 
 FORMAT_VERSION=2
@@ -27,7 +27,7 @@ def backup(database,destination):
     if not source.is_file():
         raise ValueError('Source database does not exist')
     if preflight(source)!='current':
-        raise ValueError('Backup requires schema 9; explicitly migrate old source first')
+        raise ValueError(f'Backup requires schema {SCHEMA_VERSION}; explicitly migrate old source first')
     with connect(source,read_only=True) as check:
         validate_database(check)
     dest.mkdir(mode=0o700,parents=False,exist_ok=False)
@@ -45,7 +45,7 @@ def backup(database,destination):
         copied.commit()
         copied.execute('VACUUM')
     write_private(dest/'credentials.json',credentials)
-    write_private(dest/'manifest.json',{'format_version':FORMAT_VERSION,'database_schema':9,'min_restore_protocol':2,'created_at':datetime.now(UTC).isoformat(),
+    write_private(dest/'manifest.json',{'format_version':FORMAT_VERSION,'database_schema':SCHEMA_VERSION,'min_restore_protocol':2,'created_at':datetime.now(UTC).isoformat(),
         'files':{name:sha(dest/name) for name in ('business.sqlite3','credentials.json')}})
     return dest
 
@@ -53,7 +53,7 @@ def validate_database(db, *, allow_legacy=False):
     if db.execute('PRAGMA integrity_check').fetchone()[0]!='ok' or list(db.execute('PRAGMA foreign_key_check')):
         raise ValueError('Database integrity validation failed')
     schema_version=db.execute('PRAGMA user_version').fetchone()[0]
-    schema_v2 = schema_version in (8,9)
+    schema_v2 = schema_version in (8,9,10)
     required={'users','sessions','expenses','refunds','expense_images','revisions','operations','change_requests','app_state','reports','report_tasks','push_subscriptions','notification_outbox','push_deliveries','model_usage','weekly_settings','categories','backup_runs','user_sync'}
     family_tables={'families','family_members','family_invites','family_actions','monthly_settings','schema_migrations'}
     tables={r['name'] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
@@ -72,8 +72,8 @@ def validate_database(db, *, allow_legacy=False):
     if schema_v2:
         validate_multi_family(db,tables)
     elif not allow_legacy:
-        raise ValueError('Schema 8 or 9 required')
-    if schema_version==9:
+        raise ValueError('Schema 8, 9 or 10 required')
+    if schema_version in (9,10):
         from server.memos.service import validate_database as validate_memos
         validate_memos(db)
         from server.plans import validate_database as validate_plans
@@ -175,7 +175,7 @@ def restore(backup_dir,destination,credentials=None):
     version=manifest.get('format_version')
     if version not in (1,2) or set(manifest.get('files',{}))!={'business.sqlite3','credentials.json'}:
         raise ValueError('Unsupported backup manifest')
-    if version==2 and (manifest.get('database_schema') not in (8,9) or manifest.get('min_restore_protocol')!=2):
+    if version==2 and (manifest.get('database_schema') not in (8,9,10) or manifest.get('min_restore_protocol')!=2):
         raise ValueError('Unsupported backup schema')
     if not (source/'business.sqlite3').is_file() or sha(source/'business.sqlite3')!=manifest['files']['business.sqlite3']:
         raise ValueError('Backup file checksum mismatch')
@@ -204,7 +204,7 @@ def restore(backup_dir,destination,credentials=None):
         with connect(dest) as copied:
             original.backup(copied)
             # Upgrade only the isolated copy. The signed source backup stays unchanged.
-            if version==1 or actual_version==8:
+            if version==1 or actual_version<SCHEMA_VERSION:
                 migrate_database(dest)
             else:
                 initialize_database(dest)

@@ -14,8 +14,11 @@ draft.value.reminders??=[]
 draft.value.recurrence??=null
 const remindersOpen = ref(false)
 const repeatOpen = ref(false)
+const bodyOpen = ref(Boolean(draft.value.body.trim() || draft.value.attachments.length))
 const localError = ref('')
-const composing = ref(false)
+const nativeComposing = ref(false)
+const editorComposing = ref(false)
+const composing = computed(() => nativeComposing.value || editorComposing.value)
 const times = Array.from({ length: 48 }, (_, index) => `${String(Math.floor(index / 2)).padStart(2, '0')}:${index % 2 ? '30' : '00'}`)
 const isSchedule = computed(() => draft.value.kind === 'schedule')
 watch(draft, value => { localError.value = ''; emit('change', copyDraft(value)) }, { deep: true })
@@ -41,24 +44,74 @@ function save() {
   emit('save', { ...copyDraft(draft.value), title: draft.value.title.trim() })
 }
 function addFiles(files: MemoAttachmentView[]) { draft.value.attachments.push(...files) }
+function titleEnter(event: KeyboardEvent) { if (!event.isComposing && event.keyCode !== 229) event.preventDefault() }
 </script>
 
 <template>
-  <form class="memo-composer" :aria-busy="saving" @submit.prevent="save" @compositionstart="composing = true" @compositionend="composing = false">
-    <fieldset v-if="!draft.id && scheduleEnabled && !lockedKind" class="memo-type-tabs" :disabled="saving"><legend>用途</legend><label><input v-model="draft.kind" type="radio" value="memo">备忘</label><label><input v-model="draft.kind" type="radio" value="schedule">日程</label></fieldset>
+  <form class="memo-composer" :aria-busy="saving" @submit.prevent="save" @compositionstart="nativeComposing = true" @compositionend="nativeComposing = false">
+    <div v-if="!draft.id && scheduleEnabled && !lockedKind" class="memo-type-row">
+      <fieldset class="memo-type-tabs" :disabled="saving"><legend>记录类型</legend><label><input v-model="draft.kind" type="radio" name="memo-kind" value="memo"><span>备忘</span></label><label><input v-model="draft.kind" type="radio" name="memo-kind" value="schedule"><span>日程</span></label></fieldset>
+    </div>
     <section class="memo-compose-sheet" aria-label="记录正文">
-      <input v-model="draft.title" class="memo-title-input" aria-label="标题" placeholder="标题" :disabled="saving" @keydown.enter.prevent>
-      <div class="memo-body-head"><span>正文</span><span>Markdown</span></div>
-      <MarkdownEditor v-model="draft.body" :disabled="saving" @composition-state="composing=$event" />
+      <input v-model="draft.title" class="memo-title-input" aria-label="标题" placeholder="标题" :disabled="saving" @keydown.enter="titleEnter">
+      <details class="memo-body-disclosure" :open="bodyOpen" @toggle="bodyOpen=($event.target as HTMLDetailsElement).open">
+        <summary><span>{{ bodyOpen || draft.body.trim() || draft.attachments.length ? '正文与文件' : '添加正文、图片或附件' }}</span><small>{{ draft.attachments.length ? `${draft.attachments.length} 个文件` : draft.body.trim() ? '已填写' : '选填' }}</small></summary>
+        <div class="memo-body-content">
+          <MarkdownEditor v-model="draft.body" :disabled="saving" @composition-state="editorComposing=$event" />
+          <MemoAttachments :files="draft.attachments" editable embedded :disabled="saving" @add="addFiles" @remove="id => draft.attachments = draft.attachments.filter(file => file.id !== id)" @request="emit('request-attachment', $event)" />
+        </div>
+      </details>
     </section>
-    <section class="memo-settings" aria-label="记录设置">
-      <template v-if="!isSchedule"><h3>备忘设置</h3><div class="memo-setting-group"><div class="memo-field"><div class="memo-field-head"><label for="memo-category">分类</label><button type="button" class="memo-text-button" :disabled="saving" @click="emit('create-category')">＋ 新建分类</button></div><select id="memo-category" v-model="draft.category_id" :disabled="saving"><option v-if="!categories.length" value="">请先新建分类</option><option v-for="category in categories" :key="category.id" :value="category.id">{{ category.name }}</option></select></div><label v-if="focusEnabled" class="memo-option">加入待办事项<input v-model="draft.focused" type="checkbox" :disabled="saving"></label></div></template>
-      <template v-else><h3>日程时间</h3><div class="memo-setting-group"><label class="memo-option">全天<input v-model="draft.all_day" type="checkbox" :disabled="saving"></label><div class="memo-date-time"><label class="memo-field">开始日期<input v-model="draft.start_date" type="date" max="2099-12-31" :disabled="saving"></label><label v-if="!draft.all_day" class="memo-field">开始时间<select aria-label="开始时间" v-model="draft.start_time" :disabled="saving"><option v-for="time in times" :key="time">{{ time }}</option></select></label></div><button type="button" class="memo-text-button" :aria-expanded="draft.has_end" :disabled="saving" @click="draft.has_end = !draft.has_end">{{ draft.has_end ? '移除结束' : '添加结束（选填）' }}</button><div v-if="draft.has_end" class="memo-date-time"><label class="memo-field">结束日期<input v-model="draft.end_date" type="date" max="2099-12-31" :min="draft.start_date" :disabled="saving"></label><label v-if="!draft.all_day" class="memo-field">结束时间<select aria-label="结束时间" v-model="draft.end_time" :disabled="saving"><option v-for="time in times" :key="time">{{ time }}</option></select></label></div></div></template>
+    <section class="memo-settings memo-compose-settings" aria-label="记录设置">
+      <div class="memo-setting-group memo-core-settings">
+        <template v-if="!isSchedule">
+          <div class="memo-field"><div class="memo-field-head"><label for="memo-category">分类</label><button type="button" class="memo-text-button" :disabled="saving" @click="emit('create-category')">＋ 新建分类</button></div><select id="memo-category" v-model="draft.category_id" :disabled="saving"><option v-if="!categories.length" value="">请先新建分类</option><option v-for="category in categories" :key="category.id" :value="category.id">{{ category.name }}</option></select></div>
+          <label v-if="focusEnabled" class="memo-option">加入待办事项<input v-model="draft.focused" type="checkbox" :disabled="saving"></label>
+        </template>
+        <template v-else>
+          <label class="memo-option">全天日程<input v-model="draft.all_day" type="checkbox" :disabled="saving"></label>
+          <div class="memo-date-time"><label class="memo-field">开始日期<input v-model="draft.start_date" type="date" max="2099-12-31" :disabled="saving"></label><label v-if="!draft.all_day" class="memo-field">开始时间<select aria-label="开始时间" v-model="draft.start_time" :disabled="saving"><option v-for="time in times" :key="time">{{ time }}</option></select></label></div>
+          <button type="button" class="memo-text-button memo-end-toggle" :aria-expanded="draft.has_end" :disabled="saving" @click="draft.has_end = !draft.has_end">{{ draft.has_end ? '移除结束' : '＋ 添加结束（选填）' }}</button>
+          <div v-if="draft.has_end" class="memo-date-time"><label class="memo-field">结束日期<input v-model="draft.end_date" type="date" max="2099-12-31" :min="draft.start_date" :disabled="saving"></label><label v-if="!draft.all_day" class="memo-field">结束时间<select aria-label="结束时间" v-model="draft.end_time" :disabled="saving"><option v-for="time in times" :key="time">{{ time }}</option></select></label></div>
+        </template>
+      </div>
+      <details class="memo-disclosure" :open="remindersOpen" @toggle="remindersOpen=($event.target as HTMLDetailsElement).open">
+        <summary><span>提醒</span><small>{{ draft.reminders?.length ? `${draft.reminders.length} 个提醒` : '不提醒' }}</small></summary>
+        <section aria-label="提醒设置">
+          <button type="button" class="memo-text-button memo-add-reminder" :disabled="saving" @click="addReminder">＋ 添加提醒</button>
+          <p v-if="!draft.reminders?.length" class="memo-muted">需要时可添加多个提醒，分别选择接收人。</p>
+          <fieldset v-for="(reminder,index) in draft.reminders" :key="reminder.id" class="memo-setting-group memo-reminder" :disabled="saving">
+            <legend class="memo-sr">提醒 {{ index+1 }}</legend>
+            <div class="memo-section-head"><span class="memo-muted">提醒 {{ index+1 }}</span><button type="button" class="memo-text-button" @click="draft.reminders = draft.reminders?.filter(r=>r.id!==reminder.id)">移除</button></div>
+            <label v-if="isSchedule" class="memo-field">提醒方式<select aria-label="提醒方式" v-model="reminder.mode" @change="reminder.mode==='relative' && (reminder.at=null)"><option value="relative">按日程开始时间</option><option value="absolute">指定时间</option></select></label>
+            <label v-if="reminder.mode==='absolute'" class="memo-field">提醒时间<input type="datetime-local" :value="localTime(reminder.at)" @input="reminder.at=absoluteTime($event)"></label>
+            <label v-else class="memo-field">提前多久<select aria-label="提前多久" v-model.number="reminder.offset_minutes"><option :value="0">开始时</option><option :value="30">提前半小时</option><option :value="60">提前1小时</option><option :value="1440">提前1天</option><option :value="10080">提前1周</option></select></label>
+            <label v-if="members.length>1" class="memo-option">家庭全员<input v-model="reminder.all_members" type="checkbox"></label>
+            <div v-if="!reminder.all_members" class="memo-recipients"><label v-for="member in members" :key="member.id" class="memo-option"><input v-model="reminder.recipient_ids" type="checkbox" :value="member.id">{{ member.display_name }}</label></div>
+          </fieldset>
+        </section>
+      </details>
+      <details class="memo-disclosure" :open="repeatOpen" @toggle="repeatOpen=($event.target as HTMLDetailsElement).open">
+        <summary><span>重复</span><small>{{ draft.recurrence ? `${draft.recurrence.calendar==='lunar'?'农历':'公历'} · 每 ${draft.recurrence.interval} ${({daily:'天',weekly:'周',monthly:'月',yearly:'年'})[draft.recurrence.frequency]}` : '不重复' }}</small></summary>
+        <section aria-label="重复设置">
+          <label class="memo-option">固定日期重复<input type="checkbox" :checked="!!draft.recurrence" :disabled="saving" @change="toggleRepeat"></label>
+          <template v-if="draft.recurrence">
+            <div class="memo-repeat-fields">
+              <label class="memo-field">历法<select aria-label="历法" v-model="draft.recurrence.calendar" :disabled="saving" @change="draft.recurrence.calendar==='lunar' && (draft.recurrence.frequency='yearly')"><option value="solar">公历</option><option value="lunar">农历 · 每年</option></select></label>
+              <label class="memo-field">重复周期<select aria-label="重复周期" v-model="draft.recurrence.frequency" :disabled="saving||draft.recurrence.calendar==='lunar'"><option value="daily">每天</option><option value="weekly">每周</option><option value="monthly">每月</option><option value="yearly">每年</option></select></label>
+              <label class="memo-field">间隔周期数<input v-model.number="draft.recurrence.interval" type="number" min="1" max="99" :disabled="saving"></label>
+            </div>
+            <div class="memo-date-time"><label class="memo-field">开始日期<input v-model="draft.recurrence.start_date" type="date" max="2099-12-31" :disabled="saving"></label><label class="memo-field">结束日期（选填）<input v-model="draft.recurrence.until" type="date" max="2099-12-31" :min="draft.recurrence.start_date" :disabled="saving"></label></div>
+            <template v-if="draft.recurrence.calendar==='lunar'">
+              <div class="memo-date-time"><label class="memo-field">农历月<select aria-label="农历月" v-model.number="draft.recurrence.lunar_month" :disabled="saving"><option v-for="month in 12" :key="month" :value="month">{{ month }} 月</option></select></label><label class="memo-field">农历日<select aria-label="农历日" v-model.number="draft.recurrence.lunar_day" :disabled="saving"><option v-for="day in 30" :key="day" :value="day">{{ day }} 日</option></select></label></div>
+              <label class="memo-option">闰月<input v-model="draft.recurrence.lunar_leap" type="checkbox" :disabled="saving"></label>
+            </template>
+            <p class="memo-muted">按固定日期重复；晚完成不会顺延。缺日期取月末，无对应闰月按普通同名月。</p>
+          </template>
+        </section>
+      </details>
     </section>
-    <details class="memo-settings memo-disclosure" :open="remindersOpen" @toggle="remindersOpen=($event.target as HTMLDetailsElement).open"><summary><span>提醒</span><small>{{ draft.reminders?.length ? `${draft.reminders.length} 个提醒` : '不提醒' }}</small></summary><section aria-label="提醒设置"><div class="memo-section-head"><h3>提醒</h3><button type="button" class="memo-text-button" :disabled="saving" @click="addReminder">＋ 添加提醒</button></div><p v-if="!draft.reminders?.length" class="memo-muted">不提醒；需要时可添加多个提醒。</p><fieldset v-for="(reminder,index) in draft.reminders" :key="reminder.id" class="memo-setting-group memo-reminder" :disabled="saving"><legend>提醒 {{ index+1 }}</legend><div class="memo-section-head"><span class="memo-muted">提醒 {{ index+1 }}</span><button type="button" class="memo-text-button" @click="draft.reminders = draft.reminders?.filter(r=>r.id!==reminder.id)">移除</button></div><label v-if="isSchedule" class="memo-field">提醒方式<select aria-label="提醒方式" v-model="reminder.mode" @change="reminder.mode==='relative' && (reminder.at=null)"><option value="relative">按日程开始时间</option><option value="absolute">指定时间</option></select></label><label v-if="reminder.mode==='absolute'" class="memo-field">提醒时间<input type="datetime-local" :value="localTime(reminder.at)" @input="reminder.at=absoluteTime($event)"></label><label v-else class="memo-field">提前多久<select aria-label="提前多久" v-model.number="reminder.offset_minutes"><option :value="0">开始时</option><option :value="30">提前半小时</option><option :value="60">提前1小时</option><option :value="1440">提前1天</option><option :value="10080">提前1周</option></select></label><label v-if="members.length>1" class="memo-option">家庭全员<input v-model="reminder.all_members" type="checkbox"></label><div v-if="!reminder.all_members" class="memo-recipients"><label v-for="member in members" :key="member.id" class="memo-option"><input v-model="reminder.recipient_ids" type="checkbox" :value="member.id">{{ member.display_name }}</label></div></fieldset></section></details>
-    <details class="memo-settings memo-disclosure" :open="repeatOpen" @toggle="repeatOpen=($event.target as HTMLDetailsElement).open"><summary><span>重复</span><small>{{ draft.recurrence ? `${draft.recurrence.calendar==='lunar'?'农历':'公历'} · 每 ${draft.recurrence.interval} ${({daily:'天',weekly:'周',monthly:'月',yearly:'年'})[draft.recurrence.frequency]}` : '不重复' }}</small></summary><section aria-label="重复设置"><h3>重复</h3><div class="memo-setting-group"><label class="memo-option">固定日期重复<input type="checkbox" :checked="!!draft.recurrence" :disabled="saving" @change="toggleRepeat"></label><template v-if="draft.recurrence"><label class="memo-field">历法<select aria-label="历法" v-model="draft.recurrence.calendar" :disabled="saving" @change="draft.recurrence.calendar==='lunar' && (draft.recurrence.frequency='yearly')"><option value="solar">公历</option><option value="lunar">农历 · 每年</option></select></label><label class="memo-field">重复周期<select aria-label="重复周期" v-model="draft.recurrence.frequency" :disabled="saving||draft.recurrence.calendar==='lunar'"><option value="daily">每天</option><option value="weekly">每周</option><option value="monthly">每月</option><option value="yearly">每年</option></select></label><label class="memo-field">间隔周期数<input v-model.number="draft.recurrence.interval" type="number" min="1" max="99" :disabled="saving"></label><div class="memo-date-time"><label class="memo-field">开始日期<input v-model="draft.recurrence.start_date" type="date" max="2099-12-31" :disabled="saving"></label><label class="memo-field">结束日期（选填）<input v-model="draft.recurrence.until" type="date" max="2099-12-31" :min="draft.recurrence.start_date" :disabled="saving"></label></div><template v-if="draft.recurrence.calendar==='lunar'"><div class="memo-date-time"><label class="memo-field">农历月<select aria-label="农历月" v-model.number="draft.recurrence.lunar_month" :disabled="saving"><option v-for="month in 12" :key="month" :value="month">{{ month }} 月</option></select></label><label class="memo-field">农历日<select aria-label="农历日" v-model.number="draft.recurrence.lunar_day" :disabled="saving"><option v-for="day in 30" :key="day" :value="day">{{ day }} 日</option></select></label></div><label class="memo-option">闰月<input v-model="draft.recurrence.lunar_leap" type="checkbox" :disabled="saving"></label></template><p class="memo-muted">按固定日期重复；晚完成不会顺延。缺日期取月末，无对应闰月按普通同名月。</p></template></div></section></details>
-    <MemoAttachments :files="draft.attachments" editable :disabled="saving" @add="addFiles" @remove="id => draft.attachments = draft.attachments.filter(file => file.id !== id)" @request="emit('request-attachment', $event)" />
     <p v-if="localError || error" class="memo-error" role="alert">{{ localError || error }}</p>
-    <div class="memo-form-actions"><button type="button" class="memo-text-button" :disabled="saving" @click="emit('cancel')">取消</button><button type="submit" class="memo-primary" :disabled="saving">{{ saving ? '正在保存…' : draft.id ? '保存修改' : '保存记录' }}</button></div>
+    <div class="memo-form-actions"><button type="button" class="memo-text-button" :disabled="saving" @click="emit('cancel')">取消</button><button type="submit" class="memo-primary" :disabled="saving || composing">{{ saving ? '正在保存…' : draft.id ? '保存修改' : '保存记录' }}</button></div>
   </form>
 </template>

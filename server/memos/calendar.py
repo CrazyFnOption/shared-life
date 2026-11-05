@@ -60,7 +60,9 @@ def schedule_occurrences(record,start,end):
     stop=date.fromisoformat(schedule['end_date']) if schedule.get('end_date') else original
     span=(stop-original).days
     result=[]
+    archived={item['start_date'] for item in record.get('archived_occurrences',[]) if item.get('archived_at')}
     for occurrence in record_dates(record,start-timedelta(days=span),end):
+        if occurrence.isoformat() in archived:continue
         until=occurrence+timedelta(days=span)
         last=until-timedelta(days=1) if schedule.get('end_time')=='00:00' and until>occurrence else until
         day=max(start,occurrence)

@@ -5,7 +5,7 @@ from uuid import uuid4
 import pytest
 import io,os,subprocess,sys
 from server.tests.test_multi_family import home, headers, create, join, png, management
-from server.accounting.db import connect, _initialize_legacy, _migrate_multi_family, migrate_database, preflight
+from server.accounting.db import SCHEMA_VERSION, connect, _initialize_legacy, _migrate_multi_family, migrate_database, preflight
 from server.automation.backups import backup, restore
 from server.tests.legacy_fixture import copy_legacy, legacy_file
 from server.api.app import create_app
@@ -84,7 +84,7 @@ def test_memo_file_restore_and_b_migration_keep_old_bytes(home,tmp_path):
         before={t:[tuple(r) for r in db.execute(f'SELECT * FROM {t}')] for t in ('users','app_state','schema_migrations')}
     assert preflight(old)=='previous';assert migrate_database(old);assert not migrate_database(old)
     with connect(old) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0]==9
+        assert db.execute('PRAGMA user_version').fetchone()[0]==SCHEMA_VERSION
         for t in ('users','app_state'):assert [tuple(r) for r in db.execute(f'SELECT * FROM {t}')]==before[t]
 
 
@@ -140,7 +140,11 @@ def test_schedule_half_hour_cross_day_optional_end_and_lunar_dates(home):
     item=saved(op(a,'memo',sid,'create',data));assert item['kind']=='schedule'
     r=a.get('/api/v2/memos/calendar?from_date=2026-11-04&to_date=2026-11-06',headers=headers(a));assert r.status_code==200,r.text
     assert [x['date'] for x in r.json()['occurrences']]==['2026-11-04','2026-11-05']
-    assert op(a,'memo',sid,'complete',{'completed':True},1).status_code==409
+    completed=saved(op(a,'memo',sid,'complete',{'completed':True},1))
+    assert completed['completed'] and completed['archived'] and completed['version']==2
+    assert op(a,'memo',sid,'complete',{'completed':False},1).status_code==409
+    reopened=saved(op(a,'memo',sid,'complete',{'completed':False},2))
+    assert not reopened['completed'] and not reopened['archived'] and reopened['version']==3
     invalid={**data,'schedule':{**schedule,'start_time':'22:15'}};assert op(a,'memo',str(uuid4()),'create',invalid).status_code==422
     single={**data,'schedule':{**schedule,'end_date':None,'end_time':None}};assert saved(op(a,'memo',str(uuid4()),'create',single))['schedule']['end_date'] is None
     rule={'frequency':'monthly','interval':1,'calendar':'solar','start_date':'2026-01-31','until':None,'lunar_month':None,'lunar_day':None,'lunar_leap':False}
@@ -254,8 +258,8 @@ for scope in ('private','shared'):
     assert json.loads(evidence.read_text())['original_rows_preserved']
     assert not migrate_database(target)
     with connect(target,read_only=True) as db:
-        verify(db,before);assert db.execute('PRAGMA user_version').fetchone()[0]==9
-        assert {r[0] for r in db.execute('SELECT name FROM schema_migrations')}=={'families-v1','family-owners-v1','multi-family-v2','memos-v1','plans-v1'}
+        verify(db,before);assert db.execute('PRAGMA user_version').fetchone()[0]==SCHEMA_VERSION
+        assert {r[0] for r in db.execute('SELECT name FROM schema_migrations')}=={'families-v1','family-owners-v1','multi-family-v2','memos-v1','plans-v1','memo-archive-v1'}
 
 
 def test_home_messages_scope_invite_financial_pending_and_ignore_preserves_business(home):

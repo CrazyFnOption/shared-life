@@ -53,7 +53,7 @@ def connect(db_path: str | Path, *, read_only=False):
         connection.close()
 
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 MAX_COUNTER = 9223372036854775807
 
 
@@ -70,7 +70,7 @@ def preflight(db_path):
         if not {'users','expenses','operations','revisions'}.issubset(tables):
             raise RuntimeError('unsupported_database_schema')
         marker = 'schema_migrations' in tables and db.execute("SELECT 1 FROM schema_migrations WHERE name='multi-family-v2'").fetchone()
-        if version in (8,9) and marker:
+        if version in (8,9,10) and marker:
             expected = expected_columns(version)
             if tables != set(expected) or any({r['name'] for r in db.execute(f'PRAGMA table_info({table})')} != columns for table,columns in expected.items()):
                 raise RuntimeError('unsupported_database_schema')
@@ -83,8 +83,15 @@ def preflight(db_path):
                     raise RuntimeError('unsupported_database_schema')
             if [(r['name'],r['pk']) for r in db.execute('PRAGMA table_info(family_members)') if r['pk']] != [('user_id',1),('family_id',2)]:
                 raise RuntimeError('unsupported_database_schema')
-            if version==9 and {r[0] for r in db.execute("SELECT name FROM schema_migrations")}!={'families-v1','family-owners-v1','multi-family-v2','memos-v1','plans-v1'}:
-                raise RuntimeError('unsupported_database_schema')
+            if version in (9,10):
+                markers={'families-v1','family-owners-v1','multi-family-v2','memos-v1','plans-v1'}
+                if version==10:
+                    markers.add('memo-archive-v1')
+                    column=next(r for r in db.execute('PRAGMA table_info(memos)') if r['name']=='archive_state_json')
+                    if (column['type'],column['notnull'],column['dflt_value'],column['pk'])!=('TEXT',1,"'{}'",0):
+                        raise RuntimeError('unsupported_database_schema')
+                if {r[0] for r in db.execute("SELECT name FROM schema_migrations")}!=markers:
+                    raise RuntimeError('unsupported_database_schema')
             return 'current' if version==SCHEMA_VERSION else 'previous'
         if version != 0 or marker or 'legacy_relation_epochs' in tables:
             raise RuntimeError('unsupported_database_schema')
@@ -108,10 +115,12 @@ def expected_columns(version):
     with connect(':memory:') as reference:
         reference.execute('BEGIN')
         _initialize_legacy(reference)
-        if version in (8,9):
+        if version in (8,9,10):
             _migrate_multi_family(reference)
-        if version==9:
+        if version in (9,10):
             _migrate_memos(reference)
+        if version==10:
+            _migrate_memo_archive(reference)
         return {r['name']:frozenset(c['name'] for c in reference.execute(f"PRAGMA table_info({r['name']})")) for r in reference.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
 
 
@@ -129,6 +138,7 @@ def initialize_database(db_path: str | Path) -> None:
             _initialize_legacy(db)
             _migrate_multi_family(db)
             _migrate_memos(db)
+            _migrate_memo_archive(db)
             db.commit()
         except BaseException:
             db.rollback()
@@ -190,7 +200,9 @@ def migrate_database(db_path):
             if status == 'legacy':
                 _initialize_legacy(db)
                 _migrate_multi_family(db)
-            _migrate_memos(db)
+            if db.execute('PRAGMA user_version').fetchone()[0]==8:
+                _migrate_memos(db)
+            _migrate_memo_archive(db)
             from server.automation.backups import validate_database
             validate_database(db)
             verify(db,before)
@@ -210,6 +222,15 @@ def _migrate_memos(db):
     initialize_plans(db)
     db.execute("INSERT INTO schema_migrations(name) VALUES('memos-v1')")
     db.execute('PRAGMA user_version=9')
+
+
+def _migrate_memo_archive(db):
+    sql=Path(__file__).parent.parent / 'migrations' / '010_memo_archive.sql'
+    for statement in sql.read_text().split(';'):
+        if statement.strip():
+            db.execute(statement)
+    db.execute("INSERT INTO schema_migrations(name) VALUES('memo-archive-v1')")
+    db.execute('PRAGMA user_version=10')
 
 
 def _migrate_multi_family(db):

@@ -13,17 +13,18 @@ export interface MemoCategoryOrder {id:string;version:number;category_ids:string
 export interface MemoDeletionRequest {id:string;memo_id:string;requester_id:string;author_id:string;target_version:number;reason:string;status:'pending'|'accepted'|'rejected'|'stale';version:number;created_at:string;decided_at:string|null}
 export interface MemoMessage {id:string;kind:'reminder'|'memo_deletion_request'|'plan_deletion_request'|'expense_change_request'|'expense_category_change'|'family_invite';target_type:'memo'|'deletion_request'|'plan_deletion_request'|'expense_change_request'|'expense_category_change'|'family_invite';target_id:string;record_id:string;title:string;created_at:string;source:Source;ignored?:boolean}
 export interface MemoData {category_id:string|null;title:string;body_markdown:string;attachments:MemoFileManifest[];kind?:'memo'|'schedule';schedule?:MemoSchedule|null;reminders?:MemoReminder[];recurrence?:MemoRecurrence|null}
-export interface MemoRecord extends MemoData {id:string;scope:'private'|'shared';family_id:string|null;author_id:string;updated_by:string;completed:boolean;version:number;created_at:string;updated_at:string;archived?:boolean;deleted?:boolean}
+export interface MemoOccurrenceState {start_date:string;archived_at:string|null;completed:boolean;suppressed?:boolean;schedule?:MemoSchedule}
+export interface MemoRecord extends MemoData {id:string;scope:'private'|'shared';family_id:string|null;author_id:string;updated_by:string;completed:boolean;version:number;created_at:string;updated_at:string;archived?:boolean;archived_at?:string|null;auto_archive_suppressed?:boolean;archived_occurrences?:MemoOccurrenceState[];deleted?:boolean}
 export interface MemoAttachment extends MemoFileManifest {memo_id:string;created_by:string;state:'pending'|'uploaded'|'deleted'}
-export interface MemoOperation {op_id:string;entity_type:'category'|'memo'|'focus'|'category_order'|'deletion_request';entity_id:string;kind:string;base_version:number;data:MemoData|{name:string}|{completed:boolean}|{archived:boolean}|{targets:FocusTarget[]}|{category_ids:string[]}|{target_category_id:string|null}|{memo_id:string;target_version:number;reason:string}|{accepted:boolean}|Record<string,never>}
+export interface MemoOperation {op_id:string;entity_type:'category'|'memo'|'focus'|'category_order'|'deletion_request';entity_id:string;kind:string;base_version:number;data:MemoData|{name:string}|{completed:boolean;occurrence_date?:string}|{archived:boolean;occurrence_date?:string}|{targets:FocusTarget[]}|{category_ids:string[]}|{target_category_id:string|null}|{memo_id:string;target_version:number;reason:string}|{accepted:boolean}|Record<string,never>}
 export type MemoEntity=MemoCategory|MemoRecord|MemoFocus|MemoCategoryOrder|MemoDeletionRequest
 export interface MemoReceipt {op_id:string;entity_type:MemoOperation['entity_type'];entity_id:string;version:number;record:MemoEntity;effects?:{memos?:MemoRecord[];categories?:MemoCategory[];category_order?:MemoCategoryOrder}}
 export interface MemoSnapshot {source:Source;categories:MemoCategory[];memos:MemoRecord[];attachments:MemoAttachment[];users:User[];focus?:MemoFocus;category_order?:MemoCategoryOrder;deletion_requests?:MemoDeletionRequest[];messages?:MemoMessage[]}
-export interface MemoPending {operation:MemoOperation;source:Source;frozen?:boolean;restore_review?:boolean;error?:string;error_code?:string;conflict?:MemoEntity}
+export interface MemoPending {operation:MemoOperation;source:Source;frozen?:boolean;restore_review?:boolean;local_at?:string;error?:string;error_code?:string;conflict?:MemoEntity}
 export interface MemoBlob extends MemoFileManifest {original_source?:Source;restore_binding?:BlobRestoreAudit;memo_id:string;source:Source;blob:Blob;pending:boolean;frozen?:boolean;restore_review?:boolean;error?:string}
 export interface MemoPartition {calendar?:Record<string,MemoCalendarCache>;key:string;user_id:string;source:Source;categories:MemoCategory[];local_categories:MemoCategory[];snapshot:MemoRecord[];local:MemoRecord[];attachments:MemoAttachment[];blobs:MemoBlob[];queue:MemoPending[];users:User[];synced_at:string|null;focus?:MemoFocus;local_focus?:MemoFocus;category_order?:MemoCategoryOrder;local_category_order?:MemoCategoryOrder;deletion_requests?:MemoDeletionRequest[];local_deletion_requests?:MemoDeletionRequest[];messages?:MemoMessage[]}
 export function newMemoPartition(source:Source):MemoPartition{return{key:sourceKey(source),user_id:source.user_id,source:{...source},categories:[],local_categories:[],snapshot:[],local:[],attachments:[],blobs:[],queue:[],users:[],synced_at:null,calendar:{},deletion_requests:[],local_deletion_requests:[],messages:[]}}
-export function applyMemoOperation(p:MemoPartition,op:MemoOperation,userId:string):void{
+export function applyMemoOperation(p:MemoPartition,op:MemoOperation,userId:string,timestamp=new Date().toISOString()):void{
  if(op.entity_type==='focus'){if(!p.local_focus||p.local_focus.id!==op.entity_id||p.local_focus.version!==op.base_version)throw new Error('focus_conflict');p.local_focus={id:op.entity_id,version:op.base_version+1,targets:(op.data as {targets:FocusTarget[]}).targets.map(t=>({...t}))};return}
  if(op.entity_type==='category_order'){if(!p.local_category_order||p.local_category_order.id!==op.entity_id||p.local_category_order.version!==op.base_version)throw new Error('category_order_conflict');p.local_category_order={id:op.entity_id,version:op.base_version+1,category_ids:[...(op.data as {category_ids:string[]}).category_ids]};return}
  if(op.entity_type==='deletion_request'){
@@ -42,14 +43,28 @@ export function applyMemoOperation(p:MemoPartition,op:MemoOperation,userId:strin
  if((before?.version??0)!==op.base_version)throw new Error('memo_conflict')
  let next:MemoRecord
  if(op.kind==='create'){if(before)throw new Error('memo_exists');const now=new Date().toISOString();next={...op.data as MemoData,id:op.entity_id,scope:p.source.scope,family_id:p.source.family_id,author_id:userId,updated_by:userId,completed:false,archived:false,deleted:false,version:1,created_at:now,updated_at:now}}
- else{if(!before)throw new Error('memo_not_found');let data:Partial<MemoRecord>;if(op.kind==='complete')data={completed:(op.data as {completed:boolean}).completed};else if(op.kind==='archive')data={archived:(op.data as {archived:boolean}).archived};else if(op.kind==='delete'||op.kind==='restore')data={deleted:op.kind==='delete'};else data=op.data as MemoData;next={...before,...data,updated_by:userId,version:before.version+1,updated_at:new Date().toISOString()}}
+ else{
+  if(!before)throw new Error('memo_not_found')
+  let data:Partial<MemoRecord>
+  if(op.kind==='complete'||op.kind==='archive'){
+   const input=op.data as {completed?:boolean;archived?:boolean;occurrence_date?:string},desired=op.kind==='complete'?!!input.completed:!!input.archived
+   if(before.kind==='schedule'&&(before.recurrence||input.occurrence_date&&(before.archived_occurrences??[]).some(e=>e.start_date===input.occurrence_date))){
+    const day=input.occurrence_date??before.schedule!.start_date,entries=(before.archived_occurrences??[]).filter(e=>e.start_date!==day),prior=before.archived_occurrences?.find(e=>e.start_date===day)
+    const schedule=prior?.schedule??{...before.schedule!,start_date:day,end_date:before.schedule!.end_date?new Date(Date.parse(day)+Date.parse(before.schedule!.end_date)-Date.parse(before.schedule!.start_date)).toISOString().slice(0,10):null}
+    entries.push({start_date:day,archived_at:desired?prior?.archived_at??timestamp:null,completed:op.kind==='complete'?desired:desired?prior?.completed??false:false,suppressed:!desired,schedule})
+    data={archived_occurrences:entries}
+   }else data={archived:desired,archived_at:desired?before.archived_at??timestamp:null,completed:op.kind==='complete'?desired:desired?before.completed:false,auto_archive_suppressed:!desired}
+  }else if(op.kind==='delete'||op.kind==='restore')data={deleted:op.kind==='delete'}
+  else{data=op.data as MemoData;if(JSON.stringify(data.schedule)!==JSON.stringify(before.schedule)||JSON.stringify(data.recurrence)!==JSON.stringify(before.recurrence))data={...data,auto_archive_suppressed:false,archived_occurrences:(before.archived_occurrences??[]).filter(e=>e.archived_at)}}
+  next={...before,...data,updated_by:userId,version:before.version+1,updated_at:timestamp}
+ }
  if(index<0)p.local.push(next);else p.local[index]=next
 }
 export function projectMemos(p:MemoPartition):void{
  const prior=p.local,oldCategories=p.local_categories
  p.local=p.snapshot.map(m=>({...m,attachments:m.attachments.map(a=>({...a}))}));p.local_categories=p.categories.filter(c=>!c.deleted).map(c=>({...c}));p.local_focus=p.focus?{...p.focus,targets:p.focus.targets.map(t=>({...t}))}:undefined;p.local_category_order=p.category_order?{...p.category_order,category_ids:[...p.category_order.category_ids]}:undefined;p.local_deletion_requests=(p.deletion_requests??[]).map(r=>({...r}))
  const blocked=new Set<string>()
- for(const pending of p.queue){const op=pending.operation;if(pending.frozen||pending.restore_review){blocked.add(op.entity_id);continue}if(blocked.has(op.entity_id))continue;try{applyMemoOperation(p,op,pending.source.user_id)}catch{const previous=prior.find(m=>m.id===op.entity_id);if(previous)p.local=p.local.filter(m=>m.id!==previous.id).concat(previous);const category=oldCategories.find(c=>c.id===op.entity_id);if(category&&!p.local_categories.some(c=>c.id===category.id))p.local_categories.push(category);blocked.add(op.entity_id)}}
+ for(const pending of p.queue){const op=pending.operation;if(pending.frozen||pending.restore_review){blocked.add(op.entity_id);continue}if(blocked.has(op.entity_id))continue;try{pending.local_at??=prior.find(m=>m.id===op.entity_id)?.updated_at??new Date().toISOString();applyMemoOperation(p,op,pending.source.user_id,pending.local_at)}catch{const previous=prior.find(m=>m.id===op.entity_id);if(previous)p.local=p.local.filter(m=>m.id!==previous.id).concat(previous);const category=oldCategories.find(c=>c.id===op.entity_id);if(category&&!p.local_categories.some(c=>c.id===category.id))p.local_categories.push(category);blocked.add(op.entity_id)}}
 }
 export function memoPendingSummary(partitions:MemoPartition[]){let active=0,frozen=0;for(const p of partitions)for(const item of [...p.queue,...p.blobs.filter(b=>b.pending)])item.frozen?frozen++:active++;return{active,frozen}}
 export function reconcileMemos(partitions:MemoPartition[],account:Account,_restored:boolean,previous?:AccountContext){

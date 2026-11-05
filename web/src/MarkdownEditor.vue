@@ -14,8 +14,9 @@ const emit = defineEmits<{'update:modelValue':[value:string];'composition-state'
 const host = ref<HTMLElement>()
 let view:EditorView|undefined
 const editable = new Compartment()
-const activity = StateEffect.define<{focused:boolean;composing:boolean}>()
-let focused=false, composing=false
+const activity = StateEffect.define<boolean>()
+let focused=false, composing=false, settling=false
+let appliedDisabled=props.disabled
 
 function decorate(state:EditorState,active:boolean):DecorationSet {
  const ranges:Range<Decoration>[]=[]
@@ -57,19 +58,34 @@ function decorate(state:EditorState,active:boolean):DecorationSet {
  }})
  return Decoration.set(ranges,true)
 }
-const display = StateField.define<{focused:boolean;composing:boolean;decorations:DecorationSet}>({
- create:state=>({focused:false,composing:false,decorations:decorate(state,false)}),
+const display = StateField.define<{focused:boolean;decorations:DecorationSet}>({
+ create:state=>({focused:false,decorations:decorate(state,false)}),
  update(value,tr){
-  let f=value.focused,c=value.composing
-  for(const effect of tr.effects)if(effect.is(activity)){f=effect.value.focused;c=effect.value.composing}
-  if(c)return{focused:f,composing:c,decorations:value.decorations.map(tr.changes)}
-  if(tr.docChanged||tr.selection||syntaxTree(tr.startState)!==syntaxTree(tr.state)||tr.effects.some(e=>e.is(activity)))return{focused:f,composing:c,decorations:decorate(tr.state,f)}
+  let f=value.focused
+  for(const effect of tr.effects)if(effect.is(activity))f=effect.value
+  if(composing||settling)return{focused:f,decorations:value.decorations.map(tr.changes)}
+  if(tr.docChanged||tr.selection||syntaxTree(tr.startState)!==syntaxTree(tr.state)||tr.effects.some(e=>e.is(activity)))return{focused:f,decorations:decorate(tr.state,f)}
   return value
  },provide:field=>EditorView.decorations.from(field,v=>v.decorations)
 })
-function signal(){view?.dispatch({effects:activity.of({focused,composing})})}
+function signal(){if(!composing&&!settling)view?.dispatch({effects:activity.of(focused)})}
+function syncModel(){if(view&&!composing&&!settling&&props.modelValue!==view.state.doc.toString())view.dispatch({changes:{from:0,to:view.state.doc.length,insert:props.modelValue}})}
+function syncDisabled(){if(view&&!composing&&!settling&&props.disabled!==appliedDisabled){appliedDisabled=props.disabled;view.dispatch({effects:editable.reconfigure([EditorState.readOnly.of(props.disabled),EditorView.editable.of(!props.disabled)])})}}
+function finishComposition(){
+ const editor=view
+ // iOS may leave the chosen text in pending DOM mutations until the next
+ // frame. A dispatch before CodeMirror reads those mutations erases it and
+ // redraws the previous pinyin. Its measurement phase flushes input first;
+ // defer our display/prop updates until that phase has also finished.
+ editor?.requestMeasure({key:activity,read:()=>null,write:()=>queueMicrotask(()=>{
+  if(view!==editor||composing)return
+  settling=false
+  syncModel();syncDisabled();signal()
+  emit('composition-state',false)
+ })})
+}
 function format(kind:'heading'|'bold'|'list'|'link'){
- if(!view||props.disabled||composing)return
+ if(!view||props.disabled||composing||settling)return
  const {from,to}=view.state.selection.main,selected=view.state.sliceDoc(from,to)
  if(kind==='heading'||kind==='list'){
   const start=view.state.doc.lineAt(from).from,end=view.state.doc.lineAt(to).to
@@ -81,19 +97,19 @@ function format(kind:'heading'|'bold'|'list'|'link'){
  }
  view.focus()
 }
-function historyAction(action:'undo'|'redo'){if(!view||props.disabled||composing)return;(action==='undo'?undo:redo)(view);view.focus()}
+function historyAction(action:'undo'|'redo'){if(!view||props.disabled||composing||settling)return;(action==='undo'?undo:redo)(view);view.focus()}
 onMounted(()=>{
  view=new EditorView({parent:host.value,state:EditorState.create({doc:props.modelValue,extensions:[
   markdown(),history(),keymap.of([...markdownKeymap,...defaultKeymap,...historyKeymap]),EditorView.lineWrapping,
   editable.of([EditorState.readOnly.of(props.disabled),EditorView.editable.of(!props.disabled)]),
   EditorView.contentAttributes.of({'aria-label':props.label,'aria-multiline':'true',role:'textbox',autocapitalize:'sentences'}),editorPlaceholder(props.placeholder),display,
   EditorView.updateListener.of(update=>{if(update.docChanged)emit('update:modelValue',update.state.doc.toString())}),
-  EditorView.domEventHandlers({focus(){focused=true;signal()},blur(){focused=false;signal()},compositionstart(){composing=true;emit('composition-state',true);signal()},compositionend(){composing=false;emit('composition-state',false);queueMicrotask(signal)}})
+  EditorView.domEventHandlers({focus(){focused=true;signal()},blur(){focused=false;signal()},compositionstart(){composing=true;emit('composition-state',true)},compositionend(){composing=false;settling=true;finishComposition()}})
  ]})})
 })
-watch(()=>props.modelValue,value=>{if(view&&value!==view.state.doc.toString())view.dispatch({changes:{from:0,to:view.state.doc.length,insert:value}})})
-watch(()=>props.disabled,value=>view?.dispatch({effects:editable.reconfigure([EditorState.readOnly.of(value),EditorView.editable.of(!value)])}))
-onBeforeUnmount(()=>{view?.destroy();emit('composition-state',false)})
+watch(()=>props.modelValue,syncModel)
+watch(()=>props.disabled,syncDisabled)
+onBeforeUnmount(()=>{view?.destroy();view=undefined;emit('composition-state',false)})
 defineExpose({focus:()=>view?.focus()})
 </script>
 <template>

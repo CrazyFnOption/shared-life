@@ -70,6 +70,7 @@ class CategoryData(Model):
 
 class CompleteData(Model):
     completed: bool = Field(strict=True)
+    occurrence_date: date | None = None
 
 
 class Schedule(Model):
@@ -123,6 +124,7 @@ class Recurrence(Model):
 
 class ArchiveData(Model):
     archived: bool = Field(strict=True)
+    occurrence_date: date | None = None
 
 
 class Empty(Model):
@@ -157,3 +159,17 @@ class DecideData(Model):
 
 
 MemoData.model_rebuild()
+
+
+class ArchiveOccurrenceState(Model):
+    archived_at: datetime | None = None
+    completed: bool = Field(strict=True)
+    suppressed: bool = Field(default=False,strict=True)
+    schedule: Schedule | None = None
+
+
+class ArchiveState(Model):
+    archived_at: datetime | None = None
+    reason: Literal['complete','archive','expired'] | None = None
+    suppressed: bool = Field(default=False,strict=True)
+    occurrences: dict[date,ArchiveOccurrenceState] = Field(default_factory=dict)

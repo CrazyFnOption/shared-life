@@ -422,8 +422,8 @@ export class LedgerStore{
   if(partition.queue.some(q=>q.operation.entity_id===operation.entity_id&&(q.frozen||q.restore_review||q.error)))throw new Error('请先处理这条备忘的同步问题；输入已保留。')
   if(partition.queue.some(q=>q.operation.op_id===operation.op_id))throw new Error('这次保存已经提交，请刷新核对。')
   applyMemoOperation(partition,operation,userId)
-  partition.queue.push({operation,source:{...source}})
-  for(const next of following){if(partition.queue.some(q=>q.operation.entity_id===next.entity_id&&(q.error||q.frozen||q.restore_review)))throw new Error('关注顺序还有同步问题，请先处理。');applyMemoOperation(partition,next,userId);partition.queue.push({operation:next,source:{...source}})}
+  partition.queue.push({operation,source:{...source},local_at:partition.local.find(m=>m.id===operation.entity_id)?.updated_at??new Date().toISOString()})
+  for(const next of following){if(partition.queue.some(q=>q.operation.entity_id===next.entity_id&&(q.error||q.frozen||q.restore_review)))throw new Error('关注顺序还有同步问题，请先处理。');applyMemoOperation(partition,next,userId);partition.queue.push({operation:next,source:{...source},local_at:partition.local.find(m=>m.id===next.entity_id)?.updated_at??new Date().toISOString()})}
   for(const blob of blobs){if(!sameSource(blob.source,source)||blob.memo_id!==operation.entity_id||blob.blob.size!==blob.size_bytes)throw new Error('附件来源或字节不一致，未保存。');if(state.memos.some(p=>p.blobs.some(b=>b.id===blob.id)))throw new Error('附件编号已存在，请重新选择文件。');partition.blobs.push(blob)}
 
  },source.restore_id)}

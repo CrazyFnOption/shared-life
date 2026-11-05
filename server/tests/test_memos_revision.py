@@ -22,7 +22,7 @@ def relative_record(a,day):
 def test_i02_relative_move_cancels_prior_occurrence_but_title_and_end_edits_preserve(home):
     path,app,(a,b,c)=home;today=datetime.now(calendar.ZONE).date();item,data=relative_record(a,today)
     messages=a.get('/api/v2/memos/messages',headers=headers(a)).json()['messages'];old=messages[0]['id']
-    edited={**data,'title':'仅改标题','schedule':{**data['schedule'],'end_date':today.isoformat(),'end_time':'01:00'}}
+    edited={**data,'title':'仅改标题','schedule':{**data['schedule'],'end_date':(today+timedelta(days=1)).isoformat(),'end_time':'01:00'}}
     saved(op(a,'memo',item['id'],'update',edited,1))
     assert a.get('/api/v2/memos/messages',headers=headers(a)).json()['messages'][0]['id']==old
     moved={**edited,'schedule':{**edited['schedule'],'start_date':(today+timedelta(days=1)).isoformat(),'end_date':(today+timedelta(days=1)).isoformat()}}

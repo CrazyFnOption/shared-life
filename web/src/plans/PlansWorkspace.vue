@@ -117,7 +117,7 @@ watch(editor,value=>{if(value && editorSource.value && sameSource(value.source,e
 
 <template>
 <section class="plans-workspace" aria-label="愿望与计划">
- <header class="wp-head"><button type="button" class="wp-back" :disabled="!!pending" @click="back">‹ {{ !selected && !editor ? '首页' : '返回' }}</button><div class="wp-head-copy"><p class="wp-kicker">{{ scopeLabel }}</p><h2 ref="heading" tabindex="-1">{{ headingText }}</h2></div><button v-if="!editor && !selected && writable" class="wp-add" :disabled="!!pending" @click="start(tab)">＋ 新建</button><button v-else-if="!editor && current && writable && !record?.archived" class="wp-add" :disabled="!!pending" @click="start(task ? 'task' : record!.kind,current)">编辑</button></header>
+ <header class="wp-head" :class="{ 'is-root': !selected && !editor }"><div v-if="selected || editor" class="wp-head-meta"><button type="button" class="wp-back" :disabled="!!pending" @click="back">‹ 返回</button></div><div class="wp-head-copy"><h2 ref="heading" tabindex="-1">{{ headingText }}</h2></div><button v-if="!editor && !selected && writable" class="wp-add" :disabled="!!pending" @click="start(tab)">＋ 新建</button><button v-else-if="!editor && current && writable && !record?.archived" class="wp-add" :disabled="!!pending" @click="start(task ? 'task' : record!.kind,current)">编辑</button></header>
  <p v-if="error || operationError" class="wp-error" role="alert">{{ error || operationError }}</p><p v-if="loading" class="wp-muted" role="status">正在读取本机记录…</p>
  <main class="wp-body">
   <form v-if="editor" class="wp-form" @submit.prevent="save" @compositionstart="composing=true" @compositionend="composing=false">

@@ -126,6 +126,15 @@ const ready = ref(false)
 const serverUnsupported=ref(false)
 const locked = ref(false)
 const syncing = ref(false)
+const syncOpen=ref(false)
+const syncTrigger=ref<HTMLButtonElement>()
+const networkOnline=ref(navigator.onLine)
+const syncProblem=ref('')
+const syncSummary=ref({active:0,frozen:0,financial:0,memo:0,plan:0,lastSync:null as string|null,issues:[] as string[]})
+const syncNeedsAttention=computed(()=>syncing.value||!networkOnline.value||!!syncProblem.value||syncSummary.value.active>0||syncSummary.value.frozen>0||syncSummary.value.issues.length>0||!syncSummary.value.lastSync)
+const syncStatus=computed(()=>syncing.value?'正在同步':!networkOnline.value?'当前离线':syncProblem.value?'同步未完成':syncSummary.value.issues.length?'有内容需要核对':syncSummary.value.active?'有内容待同步':syncSummary.value.frozen?'有旧内容已冻结':!syncSummary.value.lastSync?'尚未完成首次同步':'已同步到服务端')
+function closeSyncStatus(){syncOpen.value=false;void nextTick(()=>{(syncTrigger.value??document.querySelector<HTMLElement>('.life-brand'))?.focus()})}
+
 const contextChanging=ref(false)
 const saving = ref(false)
 const loggingIn = ref(false)
@@ -143,6 +152,7 @@ const password = ref('')
 const tab = ref<Scope>('private')
 const currentFamilyId=ref<string|null>(null)
 const transferFamilyId=ref('')
+watch(userId,()=>{syncProblem.value='';syncOpen.value=false;syncSummary.value={active:0,frozen:0,financial:0,memo:0,plan:0,lastSync:null,issues:[]}})
 const currentSource=()=>account.value?.source??account.value?.legacy_source
 function businessSource():Source{const source=account.value?.source;if(!source)throw new Error('请先联网升级服务端并核对来源，本机待办保留');return source}
 async function readCurrent(id:string,source=currentSource()){if(!source)throw new Error('尚未核对当前范围');return store.readProjection(id,source)}
@@ -348,50 +358,6 @@ function categories(scope:Scope):string[]{return categoryNames(account.value,sco
 
 const form = ref<{restore_id:string;family_context:FamilyContext;scope:Scope;id?:string;version?:number;original?:Expense;amount:string;purpose:string;time:string;location:string;category:string;rating:string;rating_reason:string;ratingTouched:boolean;existingReason:boolean;added:{id:string;blob:Blob;url:string}[];removed:string[]}>()
 
-const dockPosition=ref<{right:number;bottom:number}>()
-const dockStyle=computed(()=>dockPosition.value?{right:`${dockPosition.value.right}px`,bottom:`${dockPosition.value.bottom}px`,left:'auto',transform:'none'}:undefined)
-let dockDrag:{x:number;y:number;right:number;bottom:number;pointer:number;moved:boolean;capture:Element}|undefined
-let suppressDockPointer:number|undefined
-function startDockDrag(event:PointerEvent){
-  if(event.button!==0||dockDrag)return
-  suppressDockPointer=undefined
-  const dock=event.currentTarget as HTMLElement,rect=dock.getBoundingClientRect()
-  // Capturing the pressed button preserves its normal click target while all moves bubble to the dock.
-  const capture=(event.target instanceof Element?event.target.closest('button'):null)??dock
-  capture.setPointerCapture(event.pointerId)
-  dockDrag={x:event.clientX,y:event.clientY,right:window.innerWidth-rect.right,bottom:window.innerHeight-rect.bottom,pointer:event.pointerId,moved:false,capture}
-}
-function moveDock(event:PointerEvent){
-  if(!dockDrag||event.pointerId!==dockDrag.pointer)return
-  const dx=event.clientX-dockDrag.x,dy=event.clientY-dockDrag.y
-  if(!dockDrag.moved&&Math.hypot(dx,dy)<8)return
-  dockDrag.moved=true
-  const rect=(event.currentTarget as HTMLElement).getBoundingClientRect()
-  dockPosition.value={right:Math.max(0,Math.min(window.innerWidth-rect.width,dockDrag.right-dx)),bottom:Math.max(0,Math.min(window.innerHeight-rect.height,dockDrag.bottom-dy))}
-}
-function constrainDock(){
-  if(!dockPosition.value)return
-  const rect=document.querySelector('.entry-dock')?.getBoundingClientRect()
-  if(rect)dockPosition.value={right:Math.max(0,Math.min(dockPosition.value.right,window.innerWidth-rect.width)),bottom:Math.max(0,Math.min(dockPosition.value.bottom,window.innerHeight-rect.height))}
-}
-function endDockDrag(event:PointerEvent){
-  if(!dockDrag||event.pointerId!==dockDrag.pointer)return
-  const ended=dockDrag;dockDrag=undefined
-  suppressDockPointer=ended.moved?event.pointerId:undefined
-  if(ended.capture.hasPointerCapture(event.pointerId))ended.capture.releasePointerCapture(event.pointerId)
-}
-function cancelDockDrag(event:PointerEvent){
-  if(!dockDrag||event.pointerId!==dockDrag.pointer)return
-  const cancelled=dockDrag;dockDrag=undefined;suppressDockPointer=undefined
-  if(cancelled.capture.hasPointerCapture(event.pointerId))cancelled.capture.releasePointerCapture(event.pointerId)
-}
-function dockClick(event:MouseEvent){
-  const pointer='pointerId' in event?event.pointerId:undefined
-  if(suppressDockPointer!==undefined&&event.detail>0&&(pointer===undefined||pointer===suppressDockPointer)){
-    event.preventDefault();event.stopImmediatePropagation()
-  }
-  suppressDockPointer=undefined
-}
 
 const formInitial=ref(''),refundInitial=ref(''),requestInitial=ref('')
 watch(form,draft=>{formInitial.value=financialDraftFingerprint(draft)},{flush:'sync'})
@@ -614,7 +580,17 @@ async function refresh(confirmedContext?:AccountContext):Promise<void>{
    for(const [key,value] of Object.entries(memoDrafts.value)){const source=JSON.parse(key);if(value&&(!sourceValid(meta,{protocol_version:source[0],user_id:source[1],restore_id:source[2],scope:source[3],family_id:source[4],relation_epoch:source[5]} as Source)))delete memoDrafts.value[key]}
    for(const [key,draft]of Object.entries(planDrafts.value))if(!sourceValid(meta,draft.source)){delete planDrafts.value[key];delete planDraftDirty.value[key]}
    const origin=next.source
-   if(origin){const [memo,plan,issues]=await Promise.all([store.memoRead(id,origin),store.planRead(id,origin),store.moduleIssues(id,origin)]);if(userId.value===id&&sameSource(account.value?.source,origin)){memoPartition.value=memo;planPartition.value=plan;moduleSyncIssues.value=issues;moduleIssuesSource.value={...origin}}}else memoPartition.value=undefined
+   if(origin){
+    const sources=[origin,...((meta.memo_pending?.active??0)+(meta.plan_pending?.active??0)>0&&meta.context?[sourceFor(meta,{scope:'private',family_id:null}),...meta.context.families.map(f=>sourceFor(meta,{scope:'shared',family_id:f.id}))].filter(source=>!sameSource(source,origin)):[])]
+    const [memo,plan,allIssues]=await Promise.all([store.memoRead(id,origin),store.planRead(id,origin),Promise.all(sources.map(source=>store.moduleIssues(id,source)))])
+    if(userId.value===id&&sameSource(account.value?.source,origin)){
+     memoPartition.value=memo;planPartition.value=plan;moduleSyncIssues.value=allIssues[0]??[];moduleIssuesSource.value={...origin}
+     const memoPending=meta.memo_pending?.active??0,planPending=meta.plan_pending?.active??0,active=activePendingCount(meta)
+     const financialIssues=[...meta.queue,...meta.categoryQueue,...meta.images.filter(image=>image.pending)].filter(item=>!item.frozen&&(item.error||('restore_review'in item&&item.restore_review))).map(item=>`共同记账：${item.error||'恢复后内容待核对'}`)
+     const moduleIssues=allIssues.flatMap((issues,index)=>issues.map(issue=>`${issue.module==='memo'?'生活备忘':'愿望与计划'} · ${sources[index]?.scope==='private'?'私人':meta.context?.families.find(f=>f.id===sources[index]?.family_id)?.name??'家庭'}：${issue.message}`))
+     syncSummary.value={active,frozen:frozenCount(meta),financial:Math.max(0,active-memoPending-planPending),memo:memoPending,plan:planPending,lastSync:[meta.synced_at,memo.synced_at,plan.synced_at].filter((value):value is string=>!!value).sort().at(-1)??null,issues:[...new Set([...financialIssues,...moduleIssues])]}
+    }
+   }else{memoPartition.value=undefined;const active=activePendingCount(meta);syncSummary.value={active,frozen:frozenCount(meta),financial:active,memo:0,plan:0,lastSync:meta.synced_at,issues:meta.queue.filter(item=>!item.frozen&&item.error).map(item=>item.error!)}}
   }
   if(confirmedContext&&pendingNotification&&!notificationOpening&&!notificationWaiting.value)void processNotification()
  }catch(error){if(error instanceof AccountChanged){locked.value=true;message.value='账号已在其他页面变化，请重新登录'}else if(error instanceof Error)message.value=error.message}
@@ -629,21 +605,22 @@ async function sync(): Promise<void> {
   const source:SyncSource={userId:id,generation:epoch,controller:new AbortController()}
   syncSource=source
   syncing.value = true
-  message.value = '正在同步'
+  networkOnline.value=navigator.onLine
   try {
     await engine.run(id,()=>checkSyncSource(source));serverUnsupported.value=false
     if (epoch !== sessionGeneration||source.controller.signal.aborted) return
     await refresh()
     if(epoch!==sessionGeneration)return
 
-    message.value = hasPending.value ? '部分内容仍待同步或处理，请在对应模块查看' : '已同步到服务端'
+    syncProblem.value=''
+    if(['正在同步','已同步到服务端','暂未同步，本机记录仍在','部分内容仍待同步或处理，请在对应模块查看','已保存到手机，待同步','账目和图片已保存到手机，待同步','退款已保存到手机，待同步'].includes(message.value))message.value=''
   } catch (error) {
     if (epoch !== sessionGeneration||source.controller.signal.aborted) return
     if (error instanceof AccountChanged || error instanceof ApiError && (error.status===401 || error.code==='account_changed')) {
       locked.value = true
       username.value = account.value?.username ?? ''
       message.value = error instanceof ApiError && error.status===401 ? '登录已失效，本机内容已保留。请用原账号重新登录' : '登录账号已变化，本机内容已锁定。请重新登录'
-    } else {if(error instanceof ApiError&&[404,426].includes(error.status))serverUnsupported.value=true;message.value = error instanceof RestoreChanged ? error.message : error instanceof ApiError&&[404,426].includes(error.status)?'服务端需升级，已停止业务同步；本机待办与图片保留。':'暂未同步，本机记录仍在'}
+    } else {if(error instanceof ApiError&&[404,426].includes(error.status))serverUnsupported.value=true;syncProblem.value=error instanceof RestoreChanged ? error.message : error instanceof ApiError&&[404,426].includes(error.status)?'服务端需升级，已停止业务同步；本机待办与图片保留。':error instanceof ApiError?'服务端暂未确认同步，本机内容仍保留，请稍后重试。':'网络暂未确认同步，本机内容仍保留。';if(error instanceof RestoreChanged||serverUnsupported.value)message.value=syncProblem.value}
   } finally {
     if(epoch===sessionGeneration&&userId.value===id&&!source.controller.signal.aborted)await refresh()
     if(syncSource===source){
@@ -986,9 +963,10 @@ function statusName(status:ChangeRequest['status']){return {pending:'待处理',
 function actionName(kind:Proposal['kind']){return {update:'修改支出',refund_create:'新增退款',refund_update:'更正退款',refund_void:'作废退款',void:'作废支出'}[kind]}
 function requestAfter(item:ChangeRequest){try{return applyOperation(item.before,{kind:item.kind,data:item.data,operation_id:item.id,expense_id:item.expense_id,base_version:item.base_version} as Operation,item.owner_id)}catch{return undefined}}
 function foreground() { if (document.visibilityState==='visible') { void refresh(); void sync(); void checkFamilyAndInvites() } }
-function online() { void sync(); void checkFamilyAndInvites() }
+function online() { networkOnline.value=true;void sync(); void checkFamilyAndInvites() }
+function offline(){networkOnline.value=false}
 function remoteChange() { void refresh() }
-const shellBlocked=computed(()=>bookPicker.value||inboxOpen.value||route.value==='/accounting'&&!financialNavigationPaused.value&&!!(form.value||detail.value||refundForm.value||requestForm.value||requestBoard.value||reviewOpen.value||categoryPanel.value||previewId.value))
+const shellBlocked=computed(()=>syncOpen.value||bookPicker.value||inboxOpen.value||route.value==='/accounting'&&!financialNavigationPaused.value&&!!(form.value||detail.value||refundForm.value||requestForm.value||requestBoard.value||reviewOpen.value||categoryPanel.value||previewId.value))
 function visibleDialog(){return [...document.querySelectorAll<HTMLElement>('[role="dialog"]')].filter(e=>e.getClientRects().length>0).at(-1)}
 let activeDialog:HTMLElement|undefined
 const dialogReturnFocus=new WeakMap<HTMLElement,HTMLElement>()
@@ -1010,7 +988,8 @@ function shellModalKeys(event:KeyboardEvent){
   const panel=visibleDialog()
   if(!panel)return
   if(event.key==='Escape'){
-    if(inboxOpen.value){event.preventDefault();inboxOpen.value=false;inboxTrigger.value?.focus()}
+    if(syncOpen.value){event.preventDefault();closeSyncStatus()}
+    else if(inboxOpen.value){event.preventDefault();inboxOpen.value=false;inboxTrigger.value?.focus()}
     else if(bookPicker.value){event.preventDefault();bookPicker.value=false;scopeTrigger.value?.focus()}
     else {
       const close=panel.querySelector<HTMLButtonElement>('button[aria-label^="关闭"]:not(:disabled),button[aria-label^="取消"]:not(:disabled)')
@@ -1023,7 +1002,7 @@ function shellModalKeys(event:KeyboardEvent){
     else if(!event.shiftKey&&(document.activeElement===last||!panel.contains(document.activeElement))){event.preventDefault();first?.focus()}
   }
 }
-watch([form,detailId,refundForm,requestForm,requestBoard,reviewOpen,categoryPanel,previewId,bookPicker,inboxOpen,route,financialNavigationPaused],()=>{void nextTick(focusDialog)})
+watch([form,detailId,refundForm,requestForm,requestBoard,reviewOpen,categoryPanel,previewId,bookPicker,inboxOpen,syncOpen,route,financialNavigationPaused],()=>{void nextTick(focusDialog)})
 watch([form,refundForm,requestForm,reviewOpen,categoryPanel,requestBoard],()=>{if(!form.value&&!refundForm.value&&!requestForm.value&&!reviewOpen.value&&!categoryPanel.value&&!requestBoard.value)financialNavigationPaused.value=false},{flush:'sync'})
 function cacheError() { localWarning.value='离线页面准备失败；本机账本仍保留，请联网重开以重试' }
 onMounted(async () => {
@@ -1037,22 +1016,22 @@ onMounted(async () => {
   if (supported) { void sync(); void checkFamilyAndInvites() }
 })
 const inviteTimer=window.setInterval(()=>{void checkFamilyAndInvites()},10000)
-window.addEventListener('resize',constrainDock)
 window.addEventListener('keydown',shellModalKeys)
 window.addEventListener('pointerdown',dismissFinancialMenu)
 window.addEventListener('hashchange',hashChanged)
 window.addEventListener('online',online)
+window.addEventListener('offline',offline)
 navigator.serviceWorker?.addEventListener('message',notificationMessage)
 window.addEventListener('offline-cache-error',cacheError)
 document.addEventListener('visibilitychange',foreground)
 channel?.addEventListener('message',remoteChange)
-onUnmounted(() => { window.removeEventListener('resize',constrainDock);window.removeEventListener('keydown',shellModalKeys);window.removeEventListener('pointerdown',dismissFinancialMenu);window.removeEventListener('hashchange',hashChanged);window.clearInterval(inviteTimer);window.removeEventListener('online',online);navigator.serviceWorker?.removeEventListener('message',notificationMessage); window.removeEventListener('offline-cache-error',cacheError); document.removeEventListener('visibilitychange',foreground); channel?.close();imageUrlRevision++;imageUrlCache.clear();form.value?.added.forEach(i=>URL.revokeObjectURL(i.url)) })
+onUnmounted(() => { window.removeEventListener('keydown',shellModalKeys);window.removeEventListener('pointerdown',dismissFinancialMenu);window.removeEventListener('hashchange',hashChanged);window.clearInterval(inviteTimer);window.removeEventListener('online',online);window.removeEventListener('offline',offline);navigator.serviceWorker?.removeEventListener('message',notificationMessage); window.removeEventListener('offline-cache-error',cacheError); document.removeEventListener('visibilitychange',foreground); channel?.close();imageUrlRevision++;imageUrlCache.clear();form.value?.added.forEach(i=>URL.revokeObjectURL(i.url)) })
 </script>
 
 <template>
   <main :inert="loggingOut" class="app-shell" :class="{private:tab==='private'}">
     <header class="life-header" :inert="shellBlocked" :class="{'life-header-auth':!account || locked}">
-      <a class="life-brand" href="#/home" aria-label="同在首页"><img class="life-brand-mark" src="/icon.svg" alt="" aria-hidden="true">同在</a>
+      <div class="life-brand-group"><a class="life-brand" href="#/home" aria-label="同在首页"><img class="life-brand-mark" src="/icon.svg" alt="" aria-hidden="true">同在</a><button v-if="account && !locked && syncNeedsAttention" ref="syncTrigger" class="life-sync" :class="{'is-syncing':syncing,'has-issue':!!syncProblem || syncSummary.issues.length>0 || syncSummary.frozen>0}" :aria-label="`同步状态：${syncStatus}，查看详情`" aria-haspopup="dialog" :aria-expanded="syncOpen" @click="syncOpen=true"><Icon :name="syncing?'sync':!networkOnline?'offline':syncProblem || syncSummary.issues.length || syncSummary.frozen?'warning':'sync'"/></button></div>
       <template v-if="account && !locked && !contextChanging">
         <button ref="scopeTrigger" class="life-context" @click="bookPicker=true" :aria-label="`当前使用范围：${scopeName}，切换范围`"><span><strong>{{ scopeName }}</strong><small>{{ tab==='shared'?'家庭模式':'私人模式' }}</small></span><Icon name="chevron"/></button>
         <button ref="inboxTrigger" class="life-bell" @click="inboxOpen=true" :aria-label="`消息提醒，${homeMessageCount}项待处理`"><Icon name="bell"/><span v-if="homeMessageCount" class="life-badge">{{ homeMessageCount>99?'99+':homeMessageCount }}</span></button>
@@ -1060,7 +1039,7 @@ onUnmounted(() => { window.removeEventListener('resize',constrainDock);window.re
       </template>
     </header>
     <p v-if="!supported" class="notice error" role="alert">当前浏览器暂不支持离线记账，请换用新版 Safari、Chrome 或 Edge。</p>
-    <p v-if="message && message!=='已同步到服务端'" class="notice" role="status" aria-live="polite">{{ message }}<button v-if="notificationWaiting" type="button" class="text-button" @click="processNotification">打开待处理通知</button></p>
+    <p v-if="message && !['已同步到服务端','正在同步'].includes(message)" class="notice" role="status" aria-live="polite">{{ message }}<button v-if="notificationWaiting" type="button" class="text-button" @click="processNotification">打开待处理通知</button></p>
     <div v-if="inviteNotice && account && !locked" class="invite-notice notice" role="status"><span>{{ inviteNotice }}</span><button class="text-button" @click="openFamily('received')">查看邀请</button><button class="icon-button" aria-label="关闭邀请提示" @click="inviteNotice=''"><Icon name="close"/></button></div>
     <p v-if="!ready" class="empty">正在打开本机账本…</p>
     <section v-else-if="!account || locked" class="login-card card">
@@ -1079,7 +1058,7 @@ onUnmounted(() => { window.removeEventListener('resize',constrainDock);window.re
         </nav>
       </section>
       <section v-show="route==='/settings'" class="life-settings" aria-label="账号与设置">
-        <div class="page-heading"><h1 tabindex="-1">账号与设置</h1><a class="back-home" href="#/home"><Icon name="back"/>首页</a></div>
+        <div class="page-heading"><h1 tabindex="-1">账号与设置</h1></div>
         <p class="settings-identity">{{ account.user.display_name }} · {{ account.username }}</p>
         <nav class="settings-menu" aria-label="配置项目">
           <a href="#/settings/account"><Icon name="user"/><span><strong>账号与密码</strong><small>个人资料与登录安全</small></span><Icon name="next"/></a>
@@ -1097,11 +1076,10 @@ onUnmounted(() => { window.removeEventListener('resize',constrainDock);window.re
       <DeviceNotifications v-if="route==='/settings/notifications'" :key="userId" :account="account" embedded @close="returnFromConfig" @restore-changed="sync" @unauthorized="locked=true"/>
       <section v-show="route==='/accounting'" class="financial-workspace" aria-label="共同记账工作区">
       <div v-if="financialNavigationPaused" class="draft-resume" role="status"><div><strong>有未完成的记账输入</strong><small>仍保留原范围与记录，尚未保存</small></div><button class="text-button" @click="resumeFinancialNavigation">继续编辑</button></div>
-      <div class="accounting-heading"><a class="back-home" href="#/home"><Icon name="back"/>首页</a><h1 tabindex="-1">共同记账</h1><details ref="accountTools" class="account-tools" @keydown="financialMenuKeys"><summary>更多<Icon name="chevron"/></summary><div class="account-tools-menu"><button @click="closeAccountTools();openCategoryManager()">分类管理</button><button @click="closeAccountTools();openFinancialRequests()">更正待办<span v-if="awaitingApproval" class="tool-pending">{{ awaitingApproval }} 项待我审批</span></button><button @click="closeAccountTools();openFinancialReview()">财务复盘与导出</button><button @click="closeAccountTools();sync()" :disabled="syncing || !supported">{{ syncing?'正在同步…':'立即同步' }}</button></div></details></div>
+      <div class="accounting-heading"><h1 tabindex="-1">共同记账</h1><details ref="accountTools" class="account-tools" @keydown="financialMenuKeys"><summary>更多<Icon name="chevron"/></summary><div class="account-tools-menu"><button @click="closeAccountTools();openCategoryManager()">分类管理</button><button @click="closeAccountTools();openFinancialRequests()">更正待办<span v-if="awaitingApproval" class="tool-pending">{{ awaitingApproval }} 项待我审批</span></button><button @click="closeAccountTools();openFinancialReview()">财务复盘与导出</button><button @click="closeAccountTools();sync()" :disabled="syncing || !supported">{{ syncing?'正在同步…':'立即同步' }}</button></div></details></div>
       <section v-if="frozenPending" class="notice frozen-notice" role="status"><strong>{{ frozenPending }} 项旧共同待办已冻结</strong><p>不会转入新家庭或私人账，也不会自动同步。旧共同账内容已不可查看；仅本机副本保留供你决定放弃。</p><button class="subtle" @click="discardFrozen">放弃冻结待办</button></section>
-      <section class="bookline"><div><p class="book-caption">{{ tab==='shared'?`${account.family?.name??'家庭'} · 当前成员可见`:'私人账 · 仅本人可见' }}</p></div><label class="month-label"><span aria-hidden="true" class="month-display">{{ month ? `${Number(month.slice(0,4))}年${Number(month.slice(5,7))}月` : '选择月份' }}</span><input type="month" v-model="month" aria-label="统计月份"></label></section>
+      <section class="bookline"><div><p class="book-caption">{{ tab==='shared'?'共同账 · 当前成员可见':'私人账 · 仅本人可见' }}</p></div><label class="month-label"><span aria-hidden="true" class="month-display">{{ month ? `${Number(month.slice(0,4))}年${Number(month.slice(5,7))}月` : '选择月份' }}</span><input type="month" v-model="month" aria-label="统计月份"></label></section>
       <section class="summary"><p class="muted">本月{{ tab==='shared'?'共同':'私人' }}净支出</p><p class="total" :class="{'total-long':money(total).length>11}"><span>¥</span>{{ money(total) }}</p><p class="confirmed"><Icon name="check"/>服务端已确认 · {{ official.length }} 笔</p><p v-if="scopePending" class="summary-note">待同步内容另列，不计入以上正式统计。</p></section>
-      <section v-if="syncing || scopePending || issueCount || !account.synced_at" class="sync-strip"><div><strong>{{ syncing?'正在同步':scopePending ? `当前账本 ${scopePending} 项内容待同步`:'当前账本已同步' }}</strong><small>{{ account.synced_at?`最近同步：${displayTime(account.synced_at)}（上海时间）`:'尚未完成首次同步' }}</small></div><button class="subtle small" @click="sync" :disabled="syncing || !supported">{{ syncing?'同步中…':'立即同步' }}</button></section>
       <section v-if="failures.length || imageFailures.length || categoryFailures.length" class="issues card" aria-label="同步问题"><h2>需要核对的内容 · {{ issueCount }} 项</h2>
         <article v-for="item in visibleFailures" :key="item.operation.operation_id" class="issue"><p class="field-error">{{ item.error }}</p><template v-if="item.error_code==='category_deleted' && (item.operation.kind==='create'||item.operation.kind==='update') && !item.restore_review"><p>{{ account.local.find(e=>e.id===item.operation.expense_id)?.purpose }} · ¥{{ money(account.local.find(e=>e.id===item.operation.expense_id)?.amount_cents??0) }}</p><p class="form-note">草稿、后续退款／评价等操作和图片仍保留。仅替换待办链中相同的已删分类，其他字段不变。</p><label>修正为当前分类<select :value="categoryRepairTargets[item.operation.operation_id]??''" @change="categoryRepairTargets[item.operation.operation_id]=($event.target as HTMLSelectElement).value" :disabled="categoryRecoveryBusy"><option value="">未分类</option><option v-for="name in repairCategories(item)" :key="name">{{ name }}</option></select></label><div class="action-row"><button class="primary" :disabled="categoryRecoveryBusy" @click="repairPendingCategory(item,'change')">修正分类并重试</button><button v-if="repairCategories(item).includes(pendingCategoryName(item))" class="subtle" :disabled="categoryRecoveryBusy" @click="repairPendingCategory(item,'retry')">按原分类重试</button><button v-else class="subtle" :disabled="categoryRecoveryBusy" @click="repairPendingCategory(item,'restore')">重新新增同名分类并重试</button><button class="subtle" :disabled="categoryRecoveryBusy" @click="resolve(item.operation.expense_id,false)">放弃此笔本地变更</button></div></template><template v-else-if="item.conflict"><div class="comparison"><div><span class="muted">服务端当前版本 {{ item.conflict.version }}</span><strong>¥{{ money(item.conflict.amount_cents) }}</strong><p>{{ item.conflict.purpose }}</p><ExpenseFacts :expense="item.conflict"/></div><div><span class="muted">本人保留草稿</span><strong>¥{{ money(account.local.find(e=>e.id===item.operation.expense_id)?.amount_cents??0) }}</strong><p>{{ account.local.find(e=>e.id===item.operation.expense_id)?.purpose }}</p><ExpenseFacts v-if="account.local.find(e=>e.id===item.operation.expense_id)" :expense="account.local.find(e=>e.id===item.operation.expense_id)!"/></div></div><div class="action-row"><button class="subtle" @click="resolve(item.operation.expense_id,false)">采用服务端版本</button><button class="primary" @click="resolve(item.operation.expense_id,true)">核对后提交本地内容</button></div></template><template v-else><p v-if="item.restore_review" class="form-note">恢复后的服务器中没有这笔记录。父不存在的新建可核对后重新创建，其余动作需保留草稿另行核对。</p><p>{{ account.local.find(e=>e.id===item.operation.expense_id)?.purpose }} · ¥{{ money(account.local.find(e=>e.id===item.operation.expense_id)?.amount_cents??0) }}</p><div class="action-row"><button v-if="!item.error_code && !item.restore_review && item.operation.kind==='create'" class="primary" :disabled="categoryRecoveryBusy" @click="repairPendingCategory(item,'legacy')">按原内容重试一次</button><button v-if="item.restore_review && item.operation.kind==='create'" class="primary" @click="resolve(item.operation.expense_id,true)">核对后重新创建</button><button class="subtle" @click="resolve(item.operation.expense_id,false)">放弃此笔本地变更</button></div></template></article>
         <article v-for="image in visibleImageFailures" :key="image.id" class="issue"><p>{{ account.local.find(e=>e.id===image.expense_id)?.purpose||'恢复前附件' }} · 图片{{ image.pending==='delete'?'移除':'上传' }}失败</p><p class="field-error">{{ image.error }}</p><div class="action-row"><button v-if="image.blob" class="subtle" @click="previewId=image.id">查看本机图片</button><button class="subtle" @click="imageAction(image.id)">重试图片</button><button class="subtle" @click="imageAction(image.id,true)">放弃附件变更</button></div></article>
@@ -1110,14 +1088,14 @@ onUnmounted(() => { window.removeEventListener('resize',constrainDock);window.re
       </section>
       <section class="ledger"><nav class="tabs" role="tablist" aria-label="账本视图"><button role="tab" :aria-selected="view==='stats'" :class="{active:view==='stats'}" @click="view='stats'">统计</button><button role="tab" :aria-selected="view==='list'" :class="{active:view==='list'}" @click="view='list'">明细</button><span>人民币 · CNY</span></nav>
         <template v-if="view==='list'">
-          <div class="list-heading"><label class="search-label"><Icon name="search"/><input v-model="keyword" type="search" placeholder="搜索用途" aria-label="查找用途"></label><button class="subtle" aria-controls="expense-record-filters" :aria-expanded="filtersOpen" @click="filtersOpen=!filtersOpen;datePickerOpen=false">筛选<span v-if="categoryFilter || ratingFilter || dateFilter" class="filter-dot" aria-label="已设置筛选"></span><Icon name="chevron"/></button></div><div class="record-list-tools"><button class="text-button" @click="selecting?clearSelection():(selecting=true)" :disabled="recordFilter==='voided'">{{ selecting?'取消选择':'批量改分类' }}</button><button v-if="keyword || categoryFilter || ratingFilter || dateFilter" class="text-button" @click="keyword='';categoryFilter='';ratingFilter='';dateFilter='';datePickerOpen=false">清空筛选</button></div>
+          <div class="list-heading"><label class="search-label"><Icon name="search"/><input v-model="keyword" type="search" placeholder="搜索用途" aria-label="查找用途"></label><button class="subtle" aria-controls="expense-record-filters" :aria-expanded="filtersOpen" @click="filtersOpen=!filtersOpen;datePickerOpen=false">筛选<span v-if="categoryFilter || ratingFilter || dateFilter" class="filter-dot" aria-label="已设置筛选"></span><Icon name="chevron"/></button></div><div class="record-list-tools"><button class="text-button" @click="selecting?clearSelection():(selecting=true)" :disabled="recordFilter==='voided'">{{ selecting?'取消选择':'批量改分类' }}</button><button class="text-button voided-records-toggle" :aria-pressed="recordFilter==='voided'" @click="recordFilter=recordFilter==='voided'?'active':'voided'">{{ recordFilter==='voided'?'返回正常支出':'查看我作废的支出' }}</button><button v-if="keyword || categoryFilter || ratingFilter || dateFilter" class="text-button" @click="keyword='';categoryFilter='';ratingFilter='';dateFilter='';datePickerOpen=false">清空筛选</button></div>
           <div v-show="filtersOpen" id="expense-record-filters" class="record-filters">
             <label>分类<select v-model="categoryFilter" aria-label="筛选分类"><option value="">全部分类</option><option v-for="name in categories(tab)" :key="name">{{ name }}</option><option>未分类</option></select></label>
             <label>满意度<select v-model="ratingFilter" aria-label="筛选满意度"><option value="">全部满意度</option><option v-for="(label,n) in ratingLabels" :key="n" :value="String(n+1)">{{ label }}</option></select></label>
             <div class="date-filter" @keydown.esc.prevent="datePickerOpen=false;dateToggle?.focus()"><span class="date-filter-label">支出日期</span><button ref="dateToggle" class="subtle date-filter-toggle" :aria-label="`日期筛选 · ${dateFilter || '全部日期'}`" :aria-expanded="datePickerOpen" aria-controls="record-date-options" @click="toggleDates">{{ dateFilter?`${Number(dateFilter.slice(5,7))}/${Number(dateFilter.slice(8))}`:'全部日期' }}</button></div>
             <section v-if="datePickerOpen" id="record-date-options" class="date-options calendar-panel" aria-label="支出日期月历" @keydown.esc.prevent="datePickerOpen=false;dateToggle?.focus()"><h3>{{ month.replace('-', '年') }}月</h3><div class="calendar-week" aria-hidden="true"><span v-for="day in ['一','二','三','四','五','六','日']" :key="day">{{ day }}</span></div><div class="calendar-days"><button v-for="day in dateOptions" :key="day.value" :disabled="day.disabled" :aria-pressed="day.selected" :aria-label="`${day.value}，${!day.inMonth?'相邻月份':day.future?'未来日期':day.hasRecords?'有记录':'无记录'}`" :class="{'has-records':day.hasRecords,'adjacent':!day.inMonth}" @click="chooseDate(day.value)">{{ day.day }}</button></div><button class="subtle calendar-all" :aria-pressed="!dateFilter" @click="chooseDate('')">全部日期</button><p>仅可选择有记录的日期</p></section>
           </div>
-          <div class="voided-records-toggle"><span v-if="recordFilter==='voided'">正在查看我作废的支出</span><button class="text-button" @click="recordFilter=recordFilter==='voided'?'active':'voided'">{{ recordFilter==='voided'?'返回正常支出':'查看我作废的支出' }}</button></div>
+          <p v-if="recordFilter==='voided'" class="voided-view-note">正在查看我作废的支出</p>
           <p class="filter-summary">{{ records.length }} 笔 · {{ keyword || categoryFilter || ratingFilter || dateFilter ? `筛选合计 ¥${money(filterTotal)}（含本机待同步内容）` : '每页20笔 · 最新在前' }}</p>
           <div v-if="selecting" class="batch-selection-bar"><p>已选 {{ selectedIds.length }} 笔 · 可跨页选择，切换账本、月份或筛选会清空选择。待同步及作废记录不可选。</p><div class="action-row"><button class="subtle" @click="pageRecords.filter(e=>!e.voided&&!pendingIds.has(e.id)).forEach(e=>selectRecord(e.id,true))">选择本页可选记录</button><button class="primary" @click="openBatch" :disabled="!selectedIds.length">修改所选分类</button></div></div><div v-if="pendingRecords.length" class="pending-box"><h3>当前账本有 {{ pendingRecords.length }} 笔本机记录待同步</h3><p>具体记录在下方按月份、分类和关键词筛选及分页显示；每笔分别标明同步状态。</p></div>
           <div v-if="!records.length" class="empty"><Icon name="receipt"/><p>{{ keyword || categoryFilter || ratingFilter || dateFilter?'没有匹配的记录':'这个月还没有支出' }}</p><small>{{ keyword || categoryFilter || ratingFilter || dateFilter?'试试其他分类或关键词':'从下方记一笔，慢慢积累日常。' }}</small></div>
@@ -1126,7 +1104,7 @@ onUnmounted(() => { window.removeEventListener('resize',constrainDock);window.re
         </template>
         <section v-else class="statistics"><h2>钱花在了哪里<small>按分类</small></h2><div v-for="item in categoryStats" :key="item.name" class="category-stat"><div><span>{{ item.name }}</span><span>¥{{ money(item.total) }} · {{ total?Math.round(item.total/total*100):0 }}%</span></div><div class="bar"><i :style="{width:`${total?item.total/total*100:0}%`}"></i></div></div><p v-if="!categoryStats.length" class="empty">本月还没有已同步的支出</p><h2>{{ tab==='shared'?'谁支付了这些支出':'我的支付' }}<small>当前账本 · 本月</small></h2><div class="payer-grid"><div v-for="user in byPayer.filter(u=>tab==='shared'||u.id===userId)" :key="user.id"><span>{{ user.display_name }}支付</span><strong>¥{{ money(user.total) }}</strong></div></div></section>
       </section>
-      <div v-show="view!=='list' || !datePickerOpen" class="entry-dock" :style="dockStyle" @pointerdown="startDockDrag" @pointermove="moveDock" @pointerup="endDockDrag" @pointercancel="cancelDockDrag" @lostpointercapture="cancelDockDrag" @click.capture="dockClick"><button class="primary" @click="openForm(tab)" :disabled="!supported"><Icon name="plus"/>{{ tab==='shared'?'记共同支出':'记私人支出' }}</button></div>
+      <div v-show="view!=='list' || !datePickerOpen" class="entry-dock"><button class="primary" @click="openForm(tab)" :disabled="!supported"><Icon name="plus"/>{{ tab==='shared'?'记共同支出':'记私人支出' }}</button></div>
       </section>
     </div>
     <div v-show="route==='/accounting' && !financialNavigationPaused">
@@ -1134,6 +1112,7 @@ onUnmounted(() => { window.removeEventListener('resize',constrainDock);window.re
     <ReviewPanel :store="store" ref="reviewPanelRef" v-if="reviewOpen && account && !locked" :account="account" :scope="tab" @close="reviewOpen=false" @restore-changed="sync" @unauthorized="locked=true"/>
     </div>
     <footer v-if="localWarning" role="status">{{ localWarning }}</footer>
+    <div v-if="syncOpen && account && !locked" class="modal-backdrop sync-modal" @click.self="closeSyncStatus"><section class="form-card sync-status-card" role="dialog" aria-modal="true" aria-labelledby="sync-status-title"><div class="form-title"><h2 id="sync-status-title">同步状态</h2><button class="icon-button" @click="closeSyncStatus" aria-label="关闭同步状态"><Icon name="close"/></button></div><p class="sync-status-heading" role="status">{{ syncStatus }}</p><p v-if="syncProblem" class="field-error">{{ syncProblem }}</p><p class="form-note">{{ syncSummary.lastSync?`最近同步：${displayTime(syncSummary.lastSync)}（上海时间）`:'尚未完成首次同步' }}</p><p class="form-note">以下统计覆盖此账号的私人及所有家庭范围，包含记录、分类与附件；尚未保存的编辑不在其中。</p><dl class="sync-counts"><div><dt>待同步</dt><dd>{{ syncSummary.active }} 项</dd></div><div><dt>共同记账</dt><dd>{{ syncSummary.financial }} 项</dd></div><div><dt>生活备忘</dt><dd>{{ syncSummary.memo }} 项</dd></div><div><dt>愿望与计划</dt><dd>{{ syncSummary.plan }} 项</dd></div></dl><p v-if="syncSummary.active" class="form-note">待同步内容仍保存在本机，尚未全部上传。联网后会继续同步；需要核对的项目请在对应模块处理。</p><p v-if="syncSummary.frozen" class="notice">{{ syncSummary.frozen }} 项旧内容已冻结，不会自动上传或转入其他范围。请在共同记账中查看冻结待办说明。</p><ul v-if="syncSummary.issues.length" class="sync-issue-list"><li v-for="issue in syncSummary.issues" :key="issue">{{ issue }}</li></ul><button class="primary" @click="sync" :disabled="syncing || !supported || !networkOnline">{{ syncing?'同步中…':'立即同步' }}</button><p v-if="!networkOnline" class="form-note">当前离线，本机内容保留，联网后可重试。</p></section></div>
     <div v-if="bookPicker && account && !locked" class="modal-backdrop" @click.self="bookPicker=false;scopeTrigger?.focus()"><section class="form-card book-picker" role="dialog" aria-modal="true" aria-label="选择使用范围"><div class="form-title"><h2>选择使用范围</h2><button class="icon-button" @click="bookPicker=false;scopeTrigger?.focus()" aria-label="关闭范围选择"><Icon name="close"/></button></div><button v-for="family in account.context?.families??[]" :key="family.id" class="book-option" @click="switchBook('shared',family.id)" :aria-label="`家庭范围：${family.name}`"><span>{{ family.name }}<small>家庭模式 · 当前成员可见</small></span><Icon v-if="tab==='shared'&&currentFamilyId===family.id" name="check"/></button><button class="book-option" @click="switchBook('private')" aria-label="私人账"><span>私人<small>仅自己可见的记录</small></span><Icon v-if="tab==='private'" name="check"/></button></section></div>
     <div v-show="route==='/accounting' && !financialNavigationPaused">
     <div v-if="form && !locked" class="modal-backdrop" @click.self="!saving && !preparingPhotos && (form=undefined)"><section class="form-card" role="dialog" aria-modal="true" :aria-label="form.id?'修改支出':form.scope==='shared'?'记共同支出':'记私人支出'"><div class="handle"></div><div class="draft-navigation"><button class="text-button" @click="navigate('/home')"><Icon name="back"/>首页，稍后继续</button><small>未保存 · 关闭浏览器不保证保留</small></div><div class="form-title"><div><h2>{{ form.id?'修改支出':form.scope==='shared'?'记共同支出':'记私人支出' }}</h2><p class="form-scope" :class="{private:form.scope==='private'}">{{ form.scope==='shared'?'共同账 · 家庭成员可见':'私人账 · 仅本人可见' }}</p></div><button class="icon-button" @click="form=undefined" :disabled="saving || preparingPhotos" aria-label="取消"><Icon name="close"/></button></div>

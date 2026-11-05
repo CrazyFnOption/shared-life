@@ -234,11 +234,11 @@ def test_real_a_atomic_migration_preserves_old_columns_and_idempotence(frozen_a,
     with connect(path,read_only=True) as db:assert db.execute('PRAGMA user_version').fetchone()[0]==0 and 'active' not in {r['name'] for r in db.execute('PRAGMA table_info(family_members)')}
     with pytest.raises(RuntimeError,match='migration_required'):initialize_database(path)
     cli=subprocess.run([sys.executable,'-m','scripts.migrate_memos','--database',str(path)],check=True,capture_output=True,text=True)
-    assert 'Migrated to schema 9' in cli.stdout
+    assert 'Migrated to schema 10' in cli.stdout
     with connect(path) as db:
         for table,(columns,rows) in baseline.items():
             actual=[tuple(r) for r in db.execute(f"SELECT {','.join(columns)} FROM {table} ORDER BY rowid")]
-            added_markers={'multi-family-v2','memos-v1','plans-v1'}
+            added_markers={'multi-family-v2','memos-v1','plans-v1','memo-archive-v1'}
             assert rows==[r for r in actual if table!='schema_migrations' or r[0] not in added_markers]
         assert db.execute('SELECT default_family_id FROM users LIMIT 1').fetchone()[0]==json.loads((frozen_a/'fixture.json').read_text())['fid']
         validate_database(db)

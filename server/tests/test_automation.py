@@ -189,7 +189,7 @@ def test_standard_http_provider_request_and_parser(name):
     with patch('server.automation.providers.urlopen',transport):
         assert HTTPProvider(name,'gpt-6.1-sol','mock-key').call({'kind':'summary','analyses':['a']})=={'summary':'全部定性分析'}
     request,timeout=captured[0];body=json.loads(request.data)
-    assert timeout==60 and body['model']=='gpt-6.1-sol'
+    assert timeout==300 and body['model']=='gpt-6.1-sol'
     assert body['reasoning']=={'effort':'high'} and body['service_tier']=='default'
     assert body['text']['format']['type']=='json_schema' and 'tools' not in body
     assert request.full_url==('https://api.openai.com/v1/responses' if name=='openai' else 'https://api.deepseek.com/chat/completions')
@@ -222,7 +222,7 @@ def test_crash_claim_recovery_charges_call_and_uses_bounded_fallback(setup):
     m.call=crash
     for _ in range(2):
         with pytest.raises(SimulatedCrash):w.tick()
-        clock[0]+=timedelta(seconds=121)
+        clock[0]+=timedelta(seconds=361)
     fallback=Model();fallback.name='backup';w.backup=fallback
     w.tick();assert len(m.calls)==2 and len(fallback.calls)==1
     with connect(path) as db:assert db.execute('SELECT sum(calls) FROM model_usage').fetchone()[0]==3

@@ -90,7 +90,7 @@ class Worker:
             from server.memos.events import generate as memo_reminders
             memo_reminders(db,now)
             reports.schedule(db,now)
-            db.execute("UPDATE ai_costs SET status='unknown' WHERE status='reserved' AND created_at<?",((now-timedelta(seconds=180)).isoformat(),))
+            db.execute("UPDATE ai_costs SET status='unknown' WHERE status='reserved' AND created_at<?",((now-timedelta(seconds=budget.PENDING_SECONDS)).isoformat(),))
             # An expired paid claim may have reached the provider. Never replay it automatically.
             metered=any(getattr(p,'metered',False) for p in (self.primary,self.backup) if p)
             for expired in list(db.execute('SELECT report_id,claim_token FROM report_tasks WHERE claim_token IS NOT NULL AND lease_until<?',(stamp,))):
@@ -167,7 +167,7 @@ class Worker:
                     db.commit();return
                 token=cost_id  # Reuse the opaque claim UUID to correlate an expired paid call.
             db.execute('UPDATE model_usage SET calls=calls+1 WHERE day=?',(day,))
-            db.execute('UPDATE report_tasks SET claim_token=?,lease_until=?,failures=failures+1 WHERE report_id=?',(token,stamp+120,row['id']))
+            db.execute('UPDATE report_tasks SET claim_token=?,lease_until=?,failures=failures+1 WHERE report_id=?',(token,stamp+budget.PENDING_SECONDS,row['id']))
             db.execute("UPDATE reports SET status='running',error=NULL WHERE id=?",(row['id'],))
             db.commit()
         if self.stop_event.is_set():

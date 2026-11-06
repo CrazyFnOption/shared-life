@@ -10,6 +10,8 @@ LIMIT=50_000_000
 MAX_INPUT_TOKENS=1_050_000  # Hard model context ceiling, also bounds PDF/image reservation.
 MAX_OUTPUT_TOKENS=12_000
 MAX_WEB_CALLS=2
+REQUEST_TIMEOUT_SECONDS=300
+PENDING_SECONDS=360  # Provider deadline plus time to settle/persist its result.
 
 class BudgetError(Exception):
     def __init__(self,code):self.code=code;super().__init__(code)
@@ -41,7 +43,7 @@ def snapshot(db,now=None):
 def reserve(db,feature,*,web=False,now=None):
     if not db.in_transaction:raise RuntimeError('AI reserve requires a write transaction')
     moment=now or datetime.now(UTC)
-    db.execute("UPDATE ai_costs SET status='unknown' WHERE status='reserved' AND created_at<?",((moment-timedelta(seconds=180)).astimezone(UTC).isoformat(),))
+    db.execute("UPDATE ai_costs SET status='unknown' WHERE status='reserved' AND created_at<?",((moment-timedelta(seconds=PENDING_SECONDS)).astimezone(UTC).isoformat(),))
     prices=pricing();state=snapshot(db,now)
     amount=reservation_amount(prices,web)
     if amount>state['remaining_micro_usd']:raise BudgetError('ai_budget_exceeded')

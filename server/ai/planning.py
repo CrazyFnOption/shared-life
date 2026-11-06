@@ -46,7 +46,7 @@ def _view(db,user,identity,provider):
         materials=json.loads(turn['chosen_json']);latest=materials
         state=turn['status'];error=turn['error']
         # A crashed synchronous process never silently starts another paid request.
-        if state=='running' and (budget.datetime.now(budget.UTC)-budget.datetime.fromisoformat(turn['created_at'])).total_seconds()>180:state='failed';error='ai_result_unknown'
+        if state=='running' and (budget.datetime.now(budget.UTC)-budget.datetime.fromisoformat(turn['created_at'])).total_seconds()>budget.PENDING_SECONDS:state='failed';error='ai_result_unknown'
         messages.append({'id':turn['id'],'role':'user','author_id':turn['user_id'],'author_name':turn['display_name'],'content':turn['content'],'created_at':turn['created_at'],'status':state,'error':error,'sources':[],'chosen_materials':materials,**({'op_id':turn['op_id']} if turn['user_id']==user else {})})
         if turn['response_json']:
             response=json.loads(turn['response_json'])

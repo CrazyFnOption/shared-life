@@ -10,7 +10,7 @@ import ssl
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 from server.accounting.ledger import canonical_json
-from server.ai.budget import MAX_OUTPUT_TOKENS, MAX_WEB_CALLS
+from server.ai.budget import MAX_OUTPUT_TOKENS, MAX_WEB_CALLS, REQUEST_TIMEOUT_SECONDS
 
 class ProviderError(Exception):
     def __init__(self,kind='transient',usage=None,*,diagnostics=None):
@@ -25,6 +25,24 @@ def safe_identifier(value):
 
 def object_schema(properties):
     return {'type':'object','properties':properties,'required':list(properties),'additionalProperties':False}
+
+def read_response(response,started):
+    """Bound buffered response reads by the same deadline as the initial HTTP wait."""
+    limit=1024*1024+1
+    if not hasattr(response,'read1'):return response.read(limit)  # Injected local transports.
+    raw=getattr(getattr(response,'fp',None),'raw',None)
+    sock=getattr(raw,'_sock',None)
+    chunks=[];size=0
+    while size<limit:
+        if callable(getattr(response,'isclosed',None)) and response.isclosed():break
+        remaining=REQUEST_TIMEOUT_SECONDS-(time.monotonic()-started)
+        if remaining<=0:raise TimeoutError()
+        if sock is not None:sock.settimeout(remaining)
+        chunk=response.read1(min(65536,limit-size))
+        if time.monotonic()-started>REQUEST_TIMEOUT_SECONDS:raise TimeoutError()
+        if not chunk:break
+        chunks.append(chunk);size+=len(chunk)
+    return b''.join(chunks)
 
 class HTTPProvider:
     metered=True
@@ -82,10 +100,10 @@ class HTTPProvider:
             return ProviderError(kind,known_usage,diagnostics=diagnostic(reason))
         try:
             request=Request('https://api.openai.com/v1/responses',data=json.dumps(body).encode(),headers={'Authorization':f'Bearer {self.key}','Content-Type':'application/json'},method='POST')
-            with urlopen(request,timeout=60) as response:
+            with urlopen(request,timeout=REQUEST_TIMEOUT_SECONDS) as response:
                 request_id=safe_identifier((getattr(response,'headers',None) or {}).get('x-request-id'))
                 http_status=200
-                raw=response.read(1024*1024+1)
+                raw=read_response(response,started)
             if len(raw)>1024*1024:raise failed('invalid','response_too_large')
             data=json.loads(raw);response_id=safe_identifier(data.get('id'));usage=data.get('usage')
             if isinstance(usage,dict):usage=dict(usage,web_search_calls=sum(item.get('type')=='web_search_call' for item in data.get('output',[])))

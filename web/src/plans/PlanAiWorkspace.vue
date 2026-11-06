@@ -5,7 +5,7 @@ import { ApiError } from '../api'
 import { sameSource, sourceKey } from '../sources'
 import type { Source } from '../types'
 import type { PlanRecord, PlanUser } from './types'
-import { acknowledgedAiInput, aiError, aiBudgetNotice, aiUsd, requestTurn, planAiApi, selectionWithStages, sourceHref, supportedAiMaterial, validateAiInput, AI_CONTENT_LIMIT, AI_MATERIAL_LIMIT } from './ai'
+import { acknowledgedAiInput, aiCostNotice, aiError, aiBudgetNotice, aiUsd, requestTurn, planAiApi, selectionWithStages, sourceHref, supportedAiMaterial, validateAiInput, AI_CONTENT_LIMIT, AI_MATERIAL_LIMIT } from './ai'
 import type { AiConversation, AiInputDraft, AiPlanDraft, AiSendInput, AiSubmittedInput, AiMessage } from './ai'
 import './ai.css'
 const props=defineProps<{source:Source;record:PlanRecord;targetPlan?:PlanRecord;users:PlanUser[];inputDraft?:AiInputDraft;writable:boolean}>()
@@ -24,6 +24,7 @@ type ActiveSend={request:AiSendInput;input:AiSubmittedInput;controller:AbortCont
 let activeSend:ActiveSend|undefined=initialRequest?{request:initialRequest,input:attempt!.input,controller:new AbortController(),settled:false}:undefined,readSequence=0
 let statusController:AbortController|undefined
 const domain=computed(()=>sourceKey(props.source)+':'+props.record.id)
+const costNotice=computed(()=>conversation.value?aiCostNotice(conversation.value):'')
 const drafts=computed(()=>conversation.value?.drafts??[]),activeDraft=computed(()=>drafts.value.find(d=>d.id===draftId.value)??drafts.value.at(-1)),preview=computed(()=>activeDraft.value?selectionWithStages(activeDraft.value,selected.value):[])
 const availableMaterials=computed(()=>props.record.attachments.filter(supportedAiMaterial)),blocked=computed(()=>!props.writable||busy.value||loading.value||!conversation.value?.configured||conversation.value?.budget.blocked||conversation.value?.status==='running'||!!pendingOutcome.value)
 const target=computed(()=>props.targetPlan??(props.record.kind==='plan'?props.record:undefined))
@@ -96,7 +97,7 @@ void load()
  <p v-if="error" role="alert" class="ai-error">{{ error }}</p>
  <p v-if="conversation&&!conversation.configured" class="ai-notice">AI 尚未配置，手动计划可继续使用，输入草稿会保留。</p>
  <p v-else-if="conversation?.budget.blocked" class="ai-notice">{{ aiBudgetNotice(conversation.budget) }}</p>
- <template v-if="conversation"><p v-if="conversation.budget.has_unknown" class="ai-meta">有费用尚未确认，暂按原预留占用额度，不代表已扣费；剩余额度内可主动发起新请求。</p><details class="ai-budget"><summary>本月 AI 用量与预留</summary><dl><div><dt>已确认用量</dt><dd>{{ aiUsd(conversation.budget.confirmed_micro_usd) }}</dd></div><div><dt>处理中预留</dt><dd>{{ aiUsd(conversation.budget.reserved_micro_usd) }}</dd></div><div><dt>费用未知预留</dt><dd>{{ aiUsd(conversation.budget.unknown_micro_usd) }}</dd></div><div><dt>剩余可用</dt><dd>{{ aiUsd(conversation.budget.remaining_micro_usd) }} / {{ aiUsd(conversation.budget.limit_micro_usd) }}</dd></div></dl><p class="ai-meta">两项 AI 共用月额度。预留不是已确认扣费，新请求仍需有足够的单次预留空间。</p></details></template>
+ <template v-if="conversation"><p v-if="costNotice" class="ai-meta" role="status">{{ costNotice }}</p><details class="ai-budget"><summary>本月 AI 用量与预留</summary><dl><div><dt>已确认用量</dt><dd>{{ aiUsd(conversation.budget.confirmed_micro_usd) }}</dd></div><div><dt>处理中预留</dt><dd>{{ aiUsd(conversation.budget.reserved_micro_usd) }}</dd></div><div><dt>费用未知预留</dt><dd>{{ aiUsd(conversation.budget.unknown_micro_usd) }}</dd></div><div><dt>剩余可用</dt><dd>{{ aiUsd(conversation.budget.remaining_micro_usd) }} / {{ aiUsd(conversation.budget.limit_micro_usd) }}</dd></div></dl><p class="ai-meta">两项 AI 共用月额度。预留不是已确认扣费，新请求仍需有足够的单次预留空间。</p></details></template>
  <p v-if="pendingOutcome" role="status" class="ai-meta">{{ pendingOutcome==='unknown'?'本次结果待确认，正在核对服务端状态。':'本次请求正在处理，可能需要数分钟；可以稍后回来查看，不会自动重新发送。' }}</p>
  <button v-if="(error||pendingOutcome)&&!loading" class="wp-link" type="button" :disabled="reconciling" @click="refreshDiscussion">{{ reconciling?'正在核对…':pendingOutcome?'核对本次请求':'刷新讨论' }}</button>
  <template v-if="confirming">

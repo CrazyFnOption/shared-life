@@ -58,6 +58,64 @@ def send(c,w,**extra):
     r=c.post('/api/v2/plans/records/'+w['id']+'/ai/messages',json=body)
     return r,body
 
+@pytest.mark.parametrize('case,reason', [('missing_usage','missing_usage'),('null_cache_write','invalid_usage'),('expired','reservation_already_unknown')])
+def test_valid_http_planning_keeps_reply_and_adoptable_draft_when_fee_unknown(world,monkeypatch,caplog,case,reason):
+    from server.automation.providers import HTTPProvider
+    path,_,client,_,_,_,_,app=world
+    monkeypatch.setenv('SHARED_EXPENSE_MODEL_CALL_LIMIT','100')
+    app.state.planning_provider=HTTPProvider('openai','gpt-6.1-sol','FICTIONAL_PRIVATE_KEY')
+    output=dict(Fake().call({}));usage={'input_tokens':100,'output_tokens':20,'input_tokens_details':{'cached_tokens':0,'cache_write_tokens':0}}
+    if case=='null_cache_write':usage['input_tokens_details']['cache_write_tokens']=None
+    wire={'id':'resp_fictional','status':'completed','output':[{'type':'message','content':[{'type':'output_text','text':json.dumps(output),'annotations':[]}]}]}
+    if case!='missing_usage':wire['usage']=usage
+    calls=[]
+    class Reply:
+        headers={'x-request-id':'req_fictional'}
+        def __enter__(self):return self
+        def __exit__(self,*args):pass
+        def read(self,size):return json.dumps(wire).encode()
+    def transport(request,timeout):
+        calls.append(timeout)
+        if case=='expired':
+            with connect(path) as db:db.execute("UPDATE ai_costs SET status='unknown' WHERE status='reserved'")
+        return Reply()
+    monkeypatch.setattr('server.automation.providers.urlopen',transport)
+    record=wish(client);response,body=send(client,record,content='PRIVATE_CONTENT_MARKER')
+    assert response.status_code==200;data=response.json();url='/api/v2/plans/records/'+record['id']+'/ai'
+    assert data['status']=='ready' and all(m['cost_status']=='unknown' and m['error'] is None for m in data['messages'])
+    assert len(data['drafts'])==1 and any(m['role']=='assistant' for m in data['messages'])
+    assert client.get(url).json()==data and client.post(url+'/messages',json=body).json()==data and calls==[300]
+    draft=data['drafts'][0];task=next(i for i in draft['items'] if i['kind']=='task')
+    adoption={'op_id':uid(),'draft_id':draft['id'],'item_ids':[task['id']],'base_version':1,'target_plan_id':None}
+    adopted=client.post(url+'/adopt',json=adoption);assert adopted.status_code==200
+    assert client.post(url+'/adopt',json=adoption).json()==adopted.json() and calls==[300]
+    with connect(path) as db:
+        assert tuple(db.execute('SELECT status,reserved_micro_usd,actual_micro_usd FROM ai_costs').fetchone())==('unknown',5450000,None)
+        assert db.execute('SELECT count(*) FROM plan_tasks').fetchone()[0]==1
+        validate_database(db)
+    assert 'Planning AI cost unconfirmed' in caplog.text and '"reason":"'+reason+'"' in caplog.text
+    assert 'req_fictional' in caplog.text and 'resp_fictional' in caplog.text
+    assert 'PRIVATE_CONTENT_MARKER' not in caplog.text and 'FICTIONAL_PRIVATE_KEY' not in caplog.text
+
+@pytest.mark.parametrize('failure',['provider','validation'])
+def test_true_http_provider_or_output_failure_does_not_publish_reply(world,monkeypatch,failure):
+    from server.automation.providers import HTTPProvider
+    path,_,client,_,_,_,_,app=world;monkeypatch.setenv('SHARED_EXPENSE_MODEL_CALL_LIMIT','100')
+    app.state.planning_provider=HTTPProvider('openai','gpt-6.1-sol','fictional-key')
+    class Reply:
+        def __enter__(self):return self
+        def __exit__(self,*args):pass
+        def read(self,size):return json.dumps({'id':'resp_fictional','status':'completed','usage':{'input_tokens':100,'output_tokens':20},'output':[{'content':[{'type':'output_text','text':json.dumps({'message':'虚构','items':[{'id':'invalid UUID'}]})}]}]}).encode()
+    calls=[]
+    def transport(request,timeout):
+        calls.append(timeout)
+        if failure=='provider':raise TimeoutError('PRIVATE_FAILURE_MARKER')
+        return Reply()
+    monkeypatch.setattr('server.automation.providers.urlopen',transport)
+    response,_=send(client,wish(client));data=response.json()
+    assert response.status_code==200 and data['status']=='failed' and not data['drafts']
+    assert not any(m['role']=='assistant' for m in data['messages']) and calls==[300]
+
 def test_named_shared_persistence_adoption_replay_and_isolation(world):
     path,fake,a,b,au,bu,fid,app=world;w=wish(a);url='/api/v2/plans/records/'+w['id']+'/ai'
     response,body=send(a,w);assert response.status_code==200,response.text
@@ -182,7 +240,7 @@ def test_restored_planning_preserves_history_but_blocks_new_paid_calls(world,tmp
 def test_openai_planning_strict_schema_tools_materials_and_usage(monkeypatch):
     from server.automation.providers import HTTPProvider
     stage=uid();reply={'message':'草案','items':[{'id':stage,'kind':'stage','title':'准备','body_markdown':'','stage_key':None,'assignee_ids':[],'due_date':None}]}
-    wire={'status':'completed','service_tier':'default','usage':{'input_tokens':1000,'input_tokens_details':{'cached_tokens':500},'output_tokens':150,'output_tokens_details':{'reasoning_tokens':100}},'output':[
+    wire={'status':'completed','service_tier':'default','tool_usage':{'web_search':{'num_requests':1}},'usage':{'input_tokens':1000,'input_tokens_details':{'cached_tokens':500},'output_tokens':150,'output_tokens_details':{'reasoning_tokens':100}},'output':[
         {'type':'web_search_call','action':{'sources':[{'url':'https://example.com/official','title':'公开源'}]}},
         {'type':'message','content':[{'type':'output_text','text':json.dumps(reply),'annotations':[{'type':'url_citation','url':'https://example.com/official','title':'被引用的官方资料'}]}]}]}
     bodies=[]
@@ -275,3 +333,62 @@ def test_only_output_text_citations_become_verified_sources(monkeypatch):
     assert [s['url'] for s in output.sources]==['https://example.com/cited']
     assert output.sources[0]['verified'] and output.sources[0]['checked_at']
     assert provider.call({'kind':'planning','content':'虚构','allow_web':False}).sources==[]
+
+
+@pytest.mark.parametrize('reported',[0,1,2,'missing',None,True,'2',-1,3,1.5])
+def test_http_web_billing_uses_official_request_count_and_preserves_unknown_result(world,monkeypatch,caplog,reported):
+    from server.automation.providers import HTTPProvider
+    path,_,client,_,_,_,_,app=world;monkeypatch.setenv('SHARED_EXPENSE_MODEL_CALL_LIMIT','100')
+    app.state.planning_provider=HTTPProvider('openai','gpt-6.1-sol','fictional-key')
+    output=dict(Fake().call({}))
+    wire={'id':'resp_billable','status':'completed','usage':{'input_tokens':100,'output_tokens':20},'output':[
+        {'id':'ws_search','type':'web_search_call','status':'completed','action':{'type':'search','query':'PRIVATE_TOOL_MARKER'}},
+        {'id':'ws_open','type':'web_search_call','status':'completed','action':{'type':'open_page','url':'https://example.com/PRIVATE_TOOL_MARKER'}},
+        {'id':'ws_find','type':'web_search_call','status':'failed','action':{'type':'find_in_page','pattern':'PRIVATE_TOOL_MARKER'}},
+        {'type':'message','content':[{'type':'output_text','text':json.dumps(output),'annotations':[]}]}]}
+    if reported!='missing':wire['tool_usage']={'web_search':{'num_requests':reported,'num_requests_discounted':1}}
+    calls=[]
+    class Reply:
+        headers={'x-request-id':'req_billable'}
+        def __enter__(self):return self
+        def __exit__(self,*args):pass
+        def read(self,size):return json.dumps(wire).encode()
+    def transport(request,timeout):
+        body=json.loads(request.data);assert body['max_tool_calls']==2
+        calls.append(timeout);return Reply()
+    monkeypatch.setattr('server.automation.providers.urlopen',transport)
+    record=wish(client);response,body=send(client,record)
+    result=response.json();assert response.status_code==200 and result['status']=='ready' and len(result['drafts'])==1
+    url='/api/v2/plans/records/'+record['id']+'/ai'
+    assert client.get(url).json()==result and client.post(url+'/messages',json=body).json()==result and calls==[300]
+    settled=type(reported)==int and 0<=reported<=2
+    with connect(path) as db:
+        cost=dict(db.execute('SELECT * FROM ai_costs').fetchone());usage=json.loads(cost['usage_json'])
+        assert cost['status']==('settled' if settled else 'unknown')
+        assert cost['actual_micro_usd']==400+reported*10000 if settled else cost['actual_micro_usd'] is None
+        assert cost['reserved_micro_usd']==5450000 and usage['web_search_observed_items']==3
+        assert usage['web_search_calls']==(reported if type(reported)==int and reported>=0 else None)
+        if settled:
+            metadata=usage['_web_search']
+            assert metadata['observed_items']==3 and metadata['reported_billable_searches']==reported
+            assert [item['action_type'] for item in metadata['calls']]==['search','open_page','find_in_page']
+        validate_database(db)
+    assert all(m['cost_status']==('settled' if settled else 'unknown') for m in result['messages'])
+    assert 'PRIVATE_TOOL_MARKER' not in caplog.text
+    if not settled:assert '"observed_items":3' in caplog.text and 'req_billable' in caplog.text
+
+
+def test_official_web_count_has_precedence_over_output_item_count(monkeypatch):
+    from server.automation.providers import HTTPProvider
+    # A valid explicit count is authoritative even when tool output is absent.
+    wire={'status':'completed','tool_usage':{'web_search':{'num_requests':2}},'usage':{'input_tokens':100,'output_tokens':20},'output':[{'content':[{'type':'output_text','text':json.dumps({'message':'虚构','items':[]})}]}]}
+    class Reply:
+        def __enter__(self):return self
+        def __exit__(self,*args):pass
+        def read(self,size):return json.dumps(wire).encode()
+    monkeypatch.setattr('server.automation.providers.urlopen',lambda *args,**kwargs:Reply())
+    result=HTTPProvider('openai','gpt-6.1-sol','fictional').call({'kind':'planning','content':'虚构','allow_web':True})
+    assert result.usage['web_search_calls']==2 and result.diagnostics['web_search']['observed_items']==0
+    wire.pop('tool_usage')
+    result=HTTPProvider('openai','gpt-6.1-sol','fictional').call({'kind':'planning','content':'虚构','allow_web':False})
+    assert result.usage['web_search_calls']==0 and budget.usage_cost(result.usage,budget.pricing(),web_allowed=False)==400

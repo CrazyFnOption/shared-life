@@ -72,14 +72,34 @@ def usage_cost(usage,prices,*,web_allowed):
     if multiplier==2:output=ceildiv(output*3,2)
     return ceildiv(numerator+output,1_000_000)+web*prices['web']
 
-def settle(db,identity,usage,*,web_allowed=False):
+def safe_usage(usage):
+    """Only bounded numeric counters/nulls may enter diagnostics for an unknown charge."""
+    if not isinstance(usage,dict):return None
+    def counter(value):return value if type(value)==int and -(2**63)<value<2**63 else None
+    result={key:counter(usage[key]) for key in ('input_tokens','output_tokens','total_tokens','web_search_calls','web_search_observed_items','web_search_reported_count') if key in usage}
+    for name,keys in (('input_tokens_details',('cached_tokens','cache_write_tokens','cache_creation_tokens')),('output_tokens_details',('reasoning_tokens',))):
+        if name in usage:
+            details=usage[name]
+            result[name]={key:counter(details[key]) for key in keys if key in details} if isinstance(details,dict) else None
+    return result
+
+def settle(db,identity,usage,*,web_allowed=False,diagnostics=None):
     row=db.execute('SELECT * FROM ai_costs WHERE id=?',(identity,)).fetchone()
-    if not row or row['status']!='reserved':return False
+    def reject(reason):
+        known=safe_usage(usage)
+        if row and row['status'] in ('reserved','unknown'):
+            db.execute("UPDATE ai_costs SET status='unknown',usage_json=COALESCE(usage_json,?) WHERE id=?",(json.dumps(known) if known is not None else None,identity))
+        if diagnostics is not None:diagnostics.update(reason=reason,usage=known)
+        return False
+    if not row:return reject('reservation_missing')
+    if row['status']!='reserved':return reject('reservation_already_'+row['status'])
     try:
         amount=usage_cost(usage,json.loads(row['pricing_json']),web_allowed=web_allowed)
         if amount>row['reserved_micro_usd']:raise ValueError('reservation_exceeded')
-    except (ValueError,TypeError,KeyError):
-        db.execute("UPDATE ai_costs SET status='unknown' WHERE id=?",(identity,));return False
+    except (ValueError,TypeError,KeyError) as exc:
+        allowed={'missing_usage','invalid_usage','conflicting_cache_usage','unbounded_usage','reservation_exceeded'}
+        reason=str(exc) if isinstance(exc,ValueError) and str(exc) in allowed else 'invalid_pricing_or_usage'
+        return reject(reason)
     db.execute("UPDATE ai_costs SET status='settled',actual_micro_usd=?,usage_json=? WHERE id=?",(amount,json.dumps(usage),identity));return True
 
 def unknown(db,identity):db.execute("UPDATE ai_costs SET status='unknown' WHERE id=? AND status='reserved'",(identity,))

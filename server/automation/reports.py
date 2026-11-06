@@ -68,7 +68,19 @@ def read(db, row, *, detail=False):
     result['family_id'] = row['owner_id'] if row['scope']=='shared' else None
     result['owner_id'] = None if row['scope']=='shared' else row['owner_id']
     result['summary'] = summary(expenses)
-    result['content'] = json.loads(row['content_json']) if detail and fresh and row['status']=='ready' and row['content_json'] else None
+    content=json.loads(row['content_json']) if row['content_json'] else {}
+    result['content'] = content if detail and fresh and row['status']=='ready' and row['content_json'] else None
+    result['cost_status']=content.get('cost_status') if isinstance(content,dict) else None
+    task=db.execute('SELECT progress_json,claim_token FROM report_tasks WHERE report_id=?',(row['id'],)).fetchone()
+    if task:
+        try:progress=json.loads(task['progress_json'])
+        except (ValueError,TypeError):progress={}
+        if not isinstance(progress,dict):progress={}
+        result['cost_status']=progress.get('cost_status')
+        if result['cost_status']!='unknown' and task['claim_token']:
+            cost=db.execute('SELECT status FROM ai_costs WHERE id=?',(task['claim_token'],)).fetchone()
+            if cost:result['cost_status']=cost['status']
+    if result['cost_status'] not in ('reserved','settled','unknown'):result['cost_status']=None
     if not fresh:
         result.update(status='stale', data_version=current)
     if detail:

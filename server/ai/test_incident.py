@@ -189,7 +189,8 @@ def test_unknown_monthly_step_stops_automatic_replay_but_other_reports_and_manua
         task=dict(db.execute('SELECT * FROM report_tasks').fetchone())
         original=dict(db.execute("SELECT * FROM ai_costs WHERE status='unknown'").fetchone())
         assert report['error']==UNKNOWN_STEP_ERROR and report['status']=='failed'
-        assert task['progress_json']==progress and task['next_attempt']==1e30 and task['claim_token'] is None
+        expected_progress=dict(json.loads(progress),cost_status='unknown')
+        assert json.loads(task['progress_json'])==expected_progress and task['next_attempt']==1e30 and task['claim_token'] is None
     # Config/key changes must not revive this same paid step or erase its progress.
     model.key='fictional-after';worker=Worker(path,primary=model,clock=lambda:clock[0],call_limit=100)
     for _ in range(3):clock[0]+=timedelta(hours=1);worker.tick()
@@ -200,7 +201,7 @@ def test_unknown_monthly_step_stops_automatic_replay_but_other_reports_and_manua
     with connect(path) as db:
         assert db.execute("SELECT status FROM reports WHERE scope='private'").fetchone()[0]=='ready'
         current=dict(db.execute('SELECT * FROM report_tasks WHERE report_id=?',(rid,)).fetchone())
-        assert current['progress_json']==progress and current['target_version']==task['target_version']
+        assert json.loads(current['progress_json'])==expected_progress and current['target_version']==task['target_version']
         assert dict(db.execute('SELECT * FROM ai_costs WHERE id=?',(original['id'],)).fetchone())==original
         assert budget.snapshot(db,clock[0])['unknown_micro_usd']==original['reserved_micro_usd']
     assert client.post('/api/reports/'+rid+'/retry',json={}).status_code==200
@@ -209,3 +210,37 @@ def test_unknown_monthly_step_stops_automatic_replay_but_other_reports_and_manua
     with connect(path) as db:
         assert db.execute('SELECT status FROM reports WHERE id=?',(rid,)).fetchone()[0]=='ready'
         assert dict(db.execute('SELECT * FROM ai_costs WHERE id=?',(original['id'],)).fetchone())==original
+
+
+@pytest.mark.parametrize('unknown_step',['items','summary'])
+def test_valid_monthly_output_survives_unknown_cost_without_automatic_paid_continuation(setup,unknown_step):
+    from datetime import datetime,UTC,timedelta
+    from server.automation.worker import Worker
+    path,client,_,_,clock,*_=setup
+    class Metered(Model):
+        metered=True
+        def call(self,payload):
+            output=super().call(payload)
+            usage=None if payload['kind']==unknown_step else {'input_tokens':10,'output_tokens':10,'web_search_calls':0}
+            return ProviderResult(output,usage,diagnostics={'http_status':200,'request_id':'req_monthly','response_id':'resp_monthly'})
+    model=Metered();seed(client);enable(client);clock[0]=datetime(2026,10,4,13,tzinfo=UTC)
+    worker=Worker(path,primary=model,clock=lambda:clock[0],call_limit=100)
+    worker.tick()
+    if unknown_step=='summary':worker.tick()
+    report=client.get('/api/reports').json()['reports'][0]
+    detail=client.get('/api/reports/'+report['id']).json()
+    assert detail['cost_status']=='unknown'
+    if unknown_step=='summary':
+        assert detail['status']=='ready' and detail['error'] is None
+        assert detail['content']['summary']=='这是全部记录的定性复盘。' and len(detail['content']['items'])==1
+    else:
+        assert detail['status']=='failed'
+        with connect(path) as db:
+            progress=json.loads(db.execute('SELECT progress_json FROM report_tasks').fetchone()[0])
+            assert progress['index']==1 and len(progress['items'])==1 and progress['cost_status']=='unknown'
+    before=len(model.calls)
+    for _ in range(3):clock[0]+=timedelta(hours=1);worker.tick()
+    assert len(model.calls)==before
+    with connect(path) as db:
+        cost=db.execute("SELECT reserved_micro_usd,actual_micro_usd FROM ai_costs WHERE status='unknown'").fetchone()
+        assert tuple(cost)==(5430000,None)

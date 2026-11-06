@@ -26,6 +26,29 @@ def safe_identifier(value):
 def object_schema(properties):
     return {'type':'object','properties':properties,'required':list(properties),'additionalProperties':False}
 
+def web_search_usage(data):
+    """Official billable searches differ from search/open/find output items."""
+    items=[item for item in data.get('output',[]) if isinstance(item,dict) and item.get('type')=='web_search_call']
+    tool_usage=data.get('tool_usage');web=tool_usage.get('web_search') if isinstance(tool_usage,dict) else None
+    present=isinstance(web,dict) and 'num_requests' in web
+    reported=web.get('num_requests') if present else None
+    valid=type(reported)==int and reported>=0
+    if present:
+        count=reported if valid else None
+        reason=('reported_billable_searches' if reported<=MAX_WEB_CALLS else 'billable_searches_exceed_limit') if valid else 'invalid_billable_searches'
+    elif items:count=None;reason='missing_billable_searches'
+    else:count=0;reason='no_web_outputs'
+    calls=[]
+    for item in items[:16]:
+        action=item.get('action');action_type=action.get('type') if isinstance(action,dict) else None
+        calls.append({'id':safe_identifier(item.get('id')),
+                      'status':item.get('status') if item.get('status') in ('in_progress','searching','completed','failed') else 'unknown',
+                      'action_type':action_type if action_type in ('search','open_page','find','find_in_page') else 'unknown'})
+    metadata={'observed_items':len(items),'unique_observed_ids':len({safe_identifier(item.get('id')) for item in items if safe_identifier(item.get('id'))}),
+              'reported_count_present':present,'reported_billable_searches':reported if type(reported)==int and -(2**63)<reported<2**63 else None,
+              'billing_reason':reason,'calls':calls,'calls_truncated':len(items)>16}
+    return count,metadata
+
 def read_response(response,started):
     """Bound buffered response reads by the same deadline as the initial HTTP wait."""
     limit=1024*1024+1
@@ -92,10 +115,10 @@ class HTTPProvider:
               'text':{'format':{'type':'json_schema','name':'planning' if planning else 'monthly','strict':True,'schema':schema}}}
         if planning and payload.get('allow_web'):
             body.update(tools=[{'type':'web_search'}],max_tool_calls=MAX_WEB_CALLS,include=['web_search_call.action.sources'])
-        usage=None;started=time.monotonic();request_id=None;response_id=None;http_status=None
+        usage=None;started=time.monotonic();request_id=None;response_id=None;http_status=None;web_metadata=None
         def diagnostic(reason):
             return {'reason':reason,'http_status':http_status,'elapsed_ms':max(0,round((time.monotonic()-started)*1000)),
-                    'request_id':request_id,'response_id':response_id}
+                    'request_id':request_id,'response_id':response_id,'web_search':web_metadata}
         def failed(kind,reason,known_usage=None):
             return ProviderError(kind,known_usage,diagnostics=diagnostic(reason))
         try:
@@ -106,7 +129,8 @@ class HTTPProvider:
                 raw=read_response(response,started)
             if len(raw)>1024*1024:raise failed('invalid','response_too_large')
             data=json.loads(raw);response_id=safe_identifier(data.get('id'));usage=data.get('usage')
-            if isinstance(usage,dict):usage=dict(usage,web_search_calls=sum(item.get('type')=='web_search_call' for item in data.get('output',[])))
+            billable,web_metadata=web_search_usage(data)
+            if isinstance(usage,dict):usage=dict(usage,web_search_calls=billable,web_search_observed_items=web_metadata['observed_items'],web_search_reported_count=web_metadata['reported_billable_searches'],_web_search=web_metadata)
             if data.get('status')!='completed':raise failed('invalid','incomplete_response',usage)
             if data.get('service_tier','default')!='default':raise failed('invalid','unexpected_service_tier')
             sources=[];seen=set();stamp=datetime.now(UTC).isoformat()

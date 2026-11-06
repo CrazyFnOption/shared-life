@@ -4,7 +4,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { api, ApiError } from './api'
 import { money } from './money'
 import { netAmount } from './operations'
-import { ReportGate, reportContext, reportStatus, reportErrorMessage } from './reports'
+import { ReportGate, reportContext, reportStatus, reportCostNotice, reportDisplayError } from './reports'
 import Icon from './Icon.vue'
 import { sourceFor, sameSource } from './sources'
 import type { LedgerStore } from './store'
@@ -16,6 +16,7 @@ const loading=ref(false),busy=ref(false),detailLoading=ref(false),message=ref(''
 const page=ref(1),pageSize=10
 const reviewTab=ref<'weekly'|'reports'|'export'>('reports')
 const ratingEditor=ref<{expense:Expense;rating:string;reason:string}>(),ratingError=ref('')
+const costNotice=computed(()=>selected.value?reportCostNotice(selected.value):''),reportError=computed(()=>selected.value?reportDisplayError(selected.value):'')
 const pages=computed(()=>Math.max(1,Math.ceil(reports.value.length/pageSize)))
 const exportScope=ref<Scope|'all'>(props.account.family?'all':'private'),exportFormat=ref<'json'|'csv'>('json')
 const gate=new ReportGate()
@@ -108,7 +109,7 @@ onUnmounted(()=>{clearInterval(poll);invalidate();window.removeEventListener('of
    <section v-if="selected" class="report-detail monthly-detail" aria-label="月报详情">
     <div class="monthly-heading"><h3>{{ selected.month }} {{ scope==='shared'?'共同':'私人' }}复盘</h3><span class="monthly-status" role="status">{{ shortStatus(selected) }}</span></div>
     <div class="monthly-total"><span class="form-note">{{ scope==='shared'?'共同':'私人' }}净支出</span><strong>¥{{ money(selected.summary.total_cents) }}</strong><div class="monthly-payers"><div v-for="amount in selected.summary.by_payer" :key="amount.user_id"><span class="form-note">{{ payer(amount.user_id) }}支付净额</span><b>¥{{ money(amount.amount_cents) }}</b></div></div><p class="form-note">已扣除退款 · 仅含已同步记录</p></div>
-    <h3 class="monthly-section-title">这个月，钱花得怎样</h3><p v-if="selected.error" class="field-error">{{ reportErrorMessage(selected.error) }}</p>
+    <h3 class="monthly-section-title">这个月，钱花得怎样</h3><p v-if="reportError" class="field-error">{{ reportError }}</p><p v-if="costNotice" class="form-note" role="status">{{ costNotice }}</p>
     <p v-if="selected.status==='ready'&&selected.content" class="report-prose monthly-prose">{{ selected.content.summary }}</p><p v-else class="form-note">{{ selected.status==='unconfigured'?'AI 尚未配置，消费明细与已提交评价仍可查看。':selected.status==='failed'?'AI 分析暂不可用，金额与评价保留。':'分析正在等待更新，以下金额与明细来自最新已同步记录。' }}</p>
     <p v-if="selected.summary.unrated_count" class="monthly-unrated">{{ selected.summary.unrated_count }} 笔消费未评价，暂按一般情况分析。评分仍为空，不代表付款人提交了 3 分。</p>
     <h3 class="monthly-section-title">逐笔看看</h3><p class="form-note">展开查看付款人的评价与价值解释</p>

@@ -43,14 +43,16 @@ def _view(db,user,identity,provider):
     messages=[];turns=list(db.execute('SELECT t.*,u.display_name FROM ai_turns t JOIN users u ON u.id=t.user_id WHERE t.record_id=? ORDER BY t.created_at,t.rowid',(identity,)))
     latest=[]
     for turn in turns:
+        cost=db.execute('SELECT status FROM ai_costs WHERE id=?',(turn['cost_id'],)).fetchone() if turn['cost_id'] else None
+        cost_status=cost['status'] if cost else None
         materials=json.loads(turn['chosen_json']);latest=materials
         state=turn['status'];error=turn['error']
         # A crashed synchronous process never silently starts another paid request.
         if state=='running' and (budget.datetime.now(budget.UTC)-budget.datetime.fromisoformat(turn['created_at'])).total_seconds()>budget.PENDING_SECONDS:state='failed';error='ai_result_unknown'
-        messages.append({'id':turn['id'],'role':'user','author_id':turn['user_id'],'author_name':turn['display_name'],'content':turn['content'],'created_at':turn['created_at'],'status':state,'error':error,'sources':[],'chosen_materials':materials,**({'op_id':turn['op_id']} if turn['user_id']==user else {})})
+        messages.append({'id':turn['id'],'role':'user','author_id':turn['user_id'],'author_name':turn['display_name'],'content':turn['content'],'created_at':turn['created_at'],'status':state,'error':error,'cost_status':cost_status,'sources':[],'chosen_materials':materials,**({'op_id':turn['op_id']} if turn['user_id']==user else {})})
         if turn['response_json']:
             response=json.loads(turn['response_json'])
-            messages.append({'id':turn['id']+'-reply','role':'assistant','author_id':None,'author_name':'AI','content':response['message'],'created_at':turn['created_at'],'status':state,'error':error,'sources':response.get('sources',[]),'chosen_materials':materials})
+            messages.append({'id':turn['id']+'-reply','role':'assistant','author_id':None,'author_name':'AI','content':response['message'],'created_at':turn['created_at'],'status':state,'error':error,'cost_status':cost_status,'sources':response.get('sources',[]),'chosen_materials':materials})
     drafts=[{'id':r['id'],'turn_id':r['turn_id'],'base_version':r['base_version'],'items':json.loads(r['items_json'])} for r in db.execute("SELECT d.* FROM ai_drafts d JOIN ai_turns t ON t.id=d.turn_id WHERE d.record_id=? AND t.status='ready' ORDER BY d.created_at,d.rowid",(identity,))]
     return {'source':origin,'record_id':identity,'configured':provider is not None,'status':('unconfigured' if provider is None else (messages[-1]['status'] if messages else 'ready')),'messages':messages,'drafts':drafts,'chosen_materials':latest,'budget':budget.snapshot(db)}
 
@@ -137,9 +139,16 @@ def send(db,user,identity,body,provider,db_path):
     # Settle the external fact even if restore/session/member permission changed.
     with connect(db_path) as settlement:
         settlement.execute('BEGIN IMMEDIATE')
-        settled=budget.settle(settlement,cost_id,usage,web_allowed=body.allow_web)
-        if not settled:error=error or 'ai_budget_unknown'
+        cost_diagnostics={}
+        settled=budget.settle(settlement,cost_id,usage,web_allowed=body.allow_web,diagnostics=cost_diagnostics)
         settlement.commit()
+    if not settled:
+        from server.automation.providers import safe_identifier
+        detail={'turn_id':turn_id,'cost_id':cost_id,'reason':cost_diagnostics['reason'],'usage':cost_diagnostics['usage'],
+                'http_status':diagnostics.get('http_status') if type(diagnostics.get('http_status'))==int else None,
+                'elapsed_ms':max(0,round((time.monotonic()-started)*1000)),
+                'request_id':safe_identifier(diagnostics.get('request_id')),'response_id':safe_identifier(diagnostics.get('response_id')),'web_search':diagnostics.get('web_search')}
+        logging.getLogger(__name__).warning('Planning AI cost unconfirmed %s',json.dumps(detail,separators=(',',':')))
     try:
         db.execute('BEGIN IMMEDIATE')
         live_origin=plans.source(db,user);live=record(db,user,identity)

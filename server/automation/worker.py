@@ -1,8 +1,10 @@
 """One persistent bounded model step per tick. Network I/O is outside transactions."""
 from datetime import datetime, UTC, timedelta
 import json
+import logging
 import os
 import threading
+import time
 from uuid import uuid4
 from pathlib import Path
 from server.accounting.db import connect, initialize_database
@@ -10,10 +12,10 @@ from server.accounting.ledger import canonical_json, digest
 from server.automation import reports
 from server.ai import budget
 from server.accounting import families
-from server.automation.providers import configured_providers, push_configured, WebPush, ProviderError, PushError
+from server.automation.providers import configured_providers, push_configured, WebPush, ProviderError, PushError, safe_identifier
 
 MAX_INPUT_BYTES = 24000
-UNKNOWN_STEP_ERROR = '本次模型结果与费用未知，原预留已保留；已停止自动重试，可主动重试'
+UNKNOWN_STEP_ERROR = '本次模型费用未知，原预留已保留；任务进度已保存，已停止自动重试，可主动重试'
 
 def groups(items, key):
     result=[]; group=[]
@@ -178,26 +180,35 @@ class Worker:
             if not valid or reports.state(before_call)['automation_paused'] or reports.state(before_call)['restore_id']!=task['restore_id'] or (row['scope']=='shared' and not before_call.execute('SELECT 1 FROM families WHERE id=? AND archived=0',(row['owner_id'],)).fetchone()):
                 before_call.commit();return
             before_call.commit()
-        error=None;usage=None
+        error=None;usage=None;diagnostics={};started=time.monotonic()
         try:
             response=provider.call(payload)
             usage=getattr(response,'usage',None)
+            diagnostics=getattr(response,'diagnostics',{})
             output=validate(payload,response)
         except ProviderError as exc:
-            error=exc.kind;usage=exc.usage or usage
+            error=exc.kind;usage=exc.usage or usage;diagnostics=exc.diagnostics
         except Exception:
             error='transient'
         with connect(self.db_path) as db:
             db.execute('BEGIN IMMEDIATE')
-            uncertain=bool(cost_id and not budget.settle(db,cost_id,usage))
+            cost_diagnostics={}
+            uncertain=bool(cost_id and not budget.settle(db,cost_id,usage,diagnostics=cost_diagnostics))
+            if uncertain:
+                logging.getLogger(__name__).warning('Monthly AI cost unconfirmed %s',json.dumps({
+                    'report_id':row['id'],'cost_id':cost_id,'reason':cost_diagnostics['reason'],'usage':cost_diagnostics['usage'],
+                    'http_status':diagnostics.get('http_status') if type(diagnostics.get('http_status'))==int else None,
+                    'elapsed_ms':max(0,round((time.monotonic()-started)*1000)),
+                    'request_id':safe_identifier(diagnostics.get('request_id')),'response_id':safe_identifier(diagnostics.get('response_id')),'web_search':diagnostics.get('web_search')},separators=(',',':')))
             live=db.execute('SELECT * FROM report_tasks WHERE report_id=? AND claim_token=?',(row['id'],token)).fetchone()
             if not live or reports.state(db)['automation_paused'] or reports.state(db)['restore_id']!=task['restore_id'] or (row['scope']=='shared' and not db.execute('SELECT 1 FROM families WHERE id=? AND archived=0',(row['owner_id'],)).fetchone()) or reports.version(reports.snapshot(db,row['scope'],row['owner_id'],row['month']))!=current:
                 db.commit(); return
             live=dict(live)
-            if uncertain:
-                self._park_unknown(db,row['id']);db.commit();return
             if error:
+                if uncertain:self._park_unknown(db,row['id']);db.commit();return
                 self._failure(db,live,day,stamp,error); db.commit(); return
+            if uncertain:progress['cost_status']='unknown'
+            elif cost_id:progress.setdefault('cost_status','settled')
             progress.setdefault('providers',[])
             label={'provider':provider.name,'model':provider.model}
             if label not in progress['providers']:
@@ -208,7 +219,7 @@ class Worker:
             else:
                 analyses=progress.get('summaries',progress['items']); chunks=groups(analyses,'analyses')
                 if len(chunks)==1:
-                    content={'items':progress['items'],'summary':output['summary']};finished=True
+                    content={'items':progress['items'],'summary':output['summary'],'cost_status':progress.get('cost_status')};finished=True
                 else:
                     progress.setdefault('next_summaries',[]).append(output['summary'])
                     progress['summary_index']=progress.get('summary_index',0)+1
@@ -222,9 +233,16 @@ class Worker:
                     reports.enqueue_notification(db,user,f"report:{row['id']}:{current}",stamp,row['id'],current)
             else:
                 db.execute('UPDATE report_tasks SET progress_json=?,claim_token=NULL,lease_until=NULL,failures=0,next_attempt=? WHERE report_id=?',(canonical_json(progress),stamp,row['id']))
+                if uncertain:self._park_unknown(db,row['id'])
             db.commit()
 
     def _park_unknown(self,db,report_id):
+        task=db.execute('SELECT progress_json FROM report_tasks WHERE report_id=?',(report_id,)).fetchone()
+        if task:
+            try:
+                progress=json.loads(task['progress_json']);progress['cost_status']='unknown'
+            except (ValueError,TypeError):pass
+            else:db.execute('UPDATE report_tasks SET progress_json=? WHERE report_id=?',(canonical_json(progress),report_id))
         db.execute("UPDATE reports SET status='failed',error=? WHERE id=?",(UNKNOWN_STEP_ERROR,report_id))
         db.execute('UPDATE report_tasks SET next_attempt=?,claim_token=NULL,lease_until=NULL WHERE report_id=?',(1e30,report_id))
 

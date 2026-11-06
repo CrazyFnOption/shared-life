@@ -72,7 +72,7 @@ def to_v1(path):
             for col in list(db.execute(f'PRAGMA table_info({table})')):
                 if col['name'] not in old_columns:
                     db.execute(f"ALTER TABLE {table} DROP COLUMN {col['name']}")
-        db.execute("DELETE FROM schema_migrations WHERE name IN ('multi-family-v2','memos-v1','plans-v1','memo-archive-v1')")
+        db.execute("DELETE FROM schema_migrations WHERE name IN ('multi-family-v2','memos-v1','plans-v1','memo-archive-v1','ai-v2')")
         db.execute('PRAGMA user_version=0')
         db.commit()
 

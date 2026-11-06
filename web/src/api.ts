@@ -12,15 +12,15 @@ function accountHeaders(origin:AccountSource,write=false){if(!origin.user_id||!o
 function headersFor(userId:string,source:Source|FamilyContext|undefined,write=false){const s=requireSource(source);if(s.user_id!==userId)throw new Error('source_context_required');return{...accountHeaders(s,write),'X-Scope':s.scope,'X-Family-Id':s.family_id??'none','X-Relation-Epoch':String(s.relation_epoch)}}
 async function checked(response:Response):Promise<Response>{if(!response.ok){const result=await response.json().catch(()=>({})),detail=result.detail??result;throw new ApiError(response.status,typeof detail==='object'&&detail?detail.code??'invalid_request':response.status===401?'unauthorized':'invalid_request',detail?.current,detail?.restore_id)}return response}
 function checkResponse(response:Response,source:Source){for(const [key,value] of Object.entries({'X-App-Protocol':'2','X-Source-User':source.user_id,'X-Restore-Id':source.restore_id,'X-Scope':source.scope,'X-Family-Id':source.family_id??'none','X-Relation-Epoch':String(source.relation_epoch)}))if(response.headers.get(key)!==value)throw new ApiError(409,'response_source_mismatch')}
-async function fetchJson<T>(path:string,headers:Record<string,string>,body?:unknown,method?:string,source?:Source):Promise<T>{
+async function fetchJson<T>(path:string,headers:Record<string,string>,body?:unknown,method?:string,source?:Source,signal?:AbortSignal):Promise<T>{
  const verb=method??(body!==undefined?'POST':'GET'),write=verb!=='GET';if(body!==undefined)headers['Content-Type']='application/json'
  if(write)apiWrites.value++
- try{const response=await checked(await fetch(`/api${path}`,{method:verb,headers,credentials:'same-origin',cache:'no-store',body:body!==undefined?JSON.stringify(body):undefined}));if(source)checkResponse(response,source);return response.status===204?undefined as T:await response.json()}
+ try{const response=await checked(await fetch(`/api${path}`,{method:verb,headers,signal,credentials:'same-origin',cache:'no-store',body:body!==undefined?JSON.stringify(body):undefined}));if(source)checkResponse(response,source);return response.status===204?undefined as T:await response.json()}
  finally{if(write)apiWrites.value--}
 }
-export async function apiRequest<T>(path:string,userId?:string,body?:unknown,method?:string,restoreId?:string,source?:Source|FamilyContext):Promise<T>{
- if(path.startsWith('/auth/')){const headers:Record<string,string>={};if(userId)headers['X-Expected-User']=userId;if(body!==undefined||path==='/auth/logout'){headers['X-App-Request']='shared-expense';const id=restoreId??(userId?restoreIds.get(userId):undefined);if(id)headers['X-Restore-Id']=id}return fetchJson(path,headers,body,method??(path==='/auth/logout'?'POST':undefined))}
- const s=requireSource(source);return fetchJson(`/v2${path}`,headersFor(userId!,s,body!==undefined||method!==undefined&&method!=='GET'),body,method,s)
+export async function apiRequest<T>(path:string,userId?:string,body?:unknown,method?:string,restoreId?:string,source?:Source|FamilyContext,signal?:AbortSignal):Promise<T>{
+ if(path.startsWith('/auth/')){const headers:Record<string,string>={};if(userId)headers['X-Expected-User']=userId;if(body!==undefined||path==='/auth/logout'){headers['X-App-Request']='shared-expense';const id=restoreId??(userId?restoreIds.get(userId):undefined);if(id)headers['X-Restore-Id']=id}return fetchJson(path,headers,body,method??(path==='/auth/logout'?'POST':undefined),undefined,signal)}
+ const s=requireSource(source);return fetchJson(`/v2${path}`,headersFor(userId!,s,body!==undefined||method!==undefined&&method!=='GET'),body,method,s,signal)
 }
 function accountRequest<T>(path:string,origin:AccountSource,body?:unknown,method?:string){return fetchJson<T>(path,accountHeaders(origin,body!==undefined||method!==undefined&&method!=='GET'),body,method)}
 async function imageRequest(userId:string,expenseId:string,imageId:string,method:'GET'|'PUT'|'DELETE',source:Source,blob?:Blob):Promise<Response>{

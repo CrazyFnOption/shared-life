@@ -53,7 +53,7 @@ def validate_database(db, *, allow_legacy=False):
     if db.execute('PRAGMA integrity_check').fetchone()[0]!='ok' or list(db.execute('PRAGMA foreign_key_check')):
         raise ValueError('Database integrity validation failed')
     schema_version=db.execute('PRAGMA user_version').fetchone()[0]
-    schema_v2 = schema_version in (8,9,10)
+    schema_v2 = schema_version in (8,9,10,11)
     required={'users','sessions','expenses','refunds','expense_images','revisions','operations','change_requests','app_state','reports','report_tasks','push_subscriptions','notification_outbox','push_deliveries','model_usage','weekly_settings','categories','backup_runs','user_sync'}
     family_tables={'families','family_members','family_invites','family_actions','monthly_settings','schema_migrations'}
     tables={r['name'] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
@@ -73,11 +73,14 @@ def validate_database(db, *, allow_legacy=False):
         validate_multi_family(db,tables)
     elif not allow_legacy:
         raise ValueError('Schema 8, 9 or 10 required')
-    if schema_version in (9,10):
+    if schema_version in (9,10,11):
         from server.memos.service import validate_database as validate_memos
         validate_memos(db)
         from server.plans import validate_database as validate_plans
         validate_plans(db)
+    if schema_version>=11:
+        from server.ai.validation import validate_database as validate_ai
+        validate_ai(db)
     if db.execute('''SELECT 1 FROM expenses e WHERE e.amount_cents < COALESCE((SELECT sum(amount_cents) FROM refunds WHERE expense_id=e.id AND voided=0),0) LIMIT 1''').fetchone():
         raise ValueError('Invalid refund balance')
     for row in db.execute('SELECT * FROM expense_images WHERE deleted=0'):
@@ -175,7 +178,7 @@ def restore(backup_dir,destination,credentials=None):
     version=manifest.get('format_version')
     if version not in (1,2) or set(manifest.get('files',{}))!={'business.sqlite3','credentials.json'}:
         raise ValueError('Unsupported backup manifest')
-    if version==2 and (manifest.get('database_schema') not in (8,9,10) or manifest.get('min_restore_protocol')!=2):
+    if version==2 and (manifest.get('database_schema') not in (8,9,10,11) or manifest.get('min_restore_protocol')!=2):
         raise ValueError('Unsupported backup schema')
     if not (source/'business.sqlite3').is_file() or sha(source/'business.sqlite3')!=manifest['files']['business.sqlite3']:
         raise ValueError('Backup file checksum mismatch')
@@ -224,6 +227,8 @@ def restore(backup_dir,destination,credentials=None):
             copied.execute('UPDATE memo_operations SET source_restore_id=?',(restore_id,))
             from server.plans import rebind_restore as rebind_plans
             rebind_plans(copied,restore_id)
+            copied.execute("UPDATE ai_turns SET status='stale',error='restore_changed' WHERE status='running'")
+            copied.execute("UPDATE ai_costs SET status='unknown' WHERE status='reserved'")
             copied.execute("UPDATE memo_deletion_requests SET status='stale',version=version+1 WHERE status='pending'")
             copied.execute("UPDATE plan_deletion_requests SET status='stale',version=version+1 WHERE status='pending'")
             copied.execute("UPDATE memo_reminder_events SET status='cancelled'")

@@ -259,7 +259,7 @@ for scope in ('private','shared'):
     assert not migrate_database(target)
     with connect(target,read_only=True) as db:
         verify(db,before);assert db.execute('PRAGMA user_version').fetchone()[0]==SCHEMA_VERSION
-        assert {r[0] for r in db.execute('SELECT name FROM schema_migrations')}=={'families-v1','family-owners-v1','multi-family-v2','memos-v1','plans-v1','memo-archive-v1'}
+        assert {r[0] for r in db.execute('SELECT name FROM schema_migrations')}=={'families-v1','family-owners-v1','multi-family-v2','memos-v1','plans-v1','memo-archive-v1','ai-v2'}
 
 
 def test_home_messages_scope_invite_financial_pending_and_ignore_preserves_business(home):

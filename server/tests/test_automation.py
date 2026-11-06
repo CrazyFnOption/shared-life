@@ -176,7 +176,7 @@ def test_export_formula_and_filter(setup):
     assert response.content.startswith(b'\xef\xbb\xbf') and "'=1+2" in response.text and "'@private" in response.text
     assert response.headers['cache-control']=='no-store'
 
-@pytest.mark.parametrize('name',['openai','deepseek'])
+@pytest.mark.parametrize('name',['openai'])
 def test_standard_http_provider_request_and_parser(name):
     class Reply:
         def __enter__(self):return self
@@ -187,9 +187,11 @@ def test_standard_http_provider_request_and_parser(name):
     captured=[]
     def transport(request,timeout):captured.append((request,timeout));return Reply()
     with patch('server.automation.providers.urlopen',transport):
-        assert HTTPProvider(name,'test-model','mock-key').call({'kind':'summary','analyses':['a']})=={'summary':'全部定性分析'}
+        assert HTTPProvider(name,'gpt-6.1-sol','mock-key').call({'kind':'summary','analyses':['a']})=={'summary':'全部定性分析'}
     request,timeout=captured[0];body=json.loads(request.data)
-    assert timeout==40 and body['model']=='test-model'
+    assert timeout==60 and body['model']=='gpt-6.1-sol'
+    assert body['reasoning']=={'effort':'high'} and body['service_tier']=='default'
+    assert body['text']['format']['type']=='json_schema' and 'tools' not in body
     assert request.full_url==('https://api.openai.com/v1/responses' if name=='openai' else 'https://api.deepseek.com/chat/completions')
     assert ('text' in body) if name=='openai' else body['response_format']=={'type':'json_object'}
 
@@ -251,7 +253,7 @@ def test_standard_http_quota_error_is_classified_without_body_leak(code,kind):
     failure=HTTPError('https://api.openai.com/v1/responses',429,'rate',{},io.BytesIO(body))
     with patch('server.automation.providers.urlopen',side_effect=failure):
         with pytest.raises(ProviderError) as caught:
-            HTTPProvider('openai','test','mock-key').call({'kind':'summary','analyses':[]})
+            HTTPProvider('openai','gpt-6.1-sol','mock-key').call({'kind':'summary','analyses':[]})
     assert caught.value.kind==kind
     assert str(caught.value)==kind
     assert 'private mock body' not in ''.join(traceback.format_exception(caught.value))

@@ -2,7 +2,7 @@
 import json
 import pytest
 
-from server.accounting.db import connect, migrate_database, preflight
+from server.accounting.db import SCHEMA_VERSION,connect, migrate_database, preflight
 from server.automation.backups import backup, restore, sha, validate_database, write_private
 from server.tests.test_schema10_archive_migration import schema9
 from server.tests.legacy_fixture import legacy_file
@@ -18,7 +18,7 @@ def test_format2_schema10_archive_and_attachment_roundtrip(schema9,tmp_path):
         restore_id=db.execute('SELECT restore_id FROM app_state').fetchone()[0]
     saved=backup(schema9,tmp_path/'backup')
     manifest=json.loads((saved/'manifest.json').read_text())
-    assert manifest['format_version']==2 and manifest['database_schema']==10 and manifest['min_restore_protocol']==2
+    assert manifest['format_version']==2 and manifest['database_schema']==SCHEMA_VERSION and manifest['min_restore_protocol']==2
     signed=sha(saved/'business.sqlite3');dest=tmp_path/'restored.sqlite3'
     result=restore(saved,dest,saved/'credentials.json')
     assert result['login_enabled'] and result['automation_paused'] and result['restore_id']!=restore_id

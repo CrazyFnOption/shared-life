@@ -8,10 +8,12 @@ from pathlib import Path
 from server.accounting.db import connect, initialize_database
 from server.accounting.ledger import canonical_json, digest
 from server.automation import reports
+from server.ai import budget
 from server.accounting import families
 from server.automation.providers import configured_providers, push_configured, WebPush, ProviderError, PushError
 
 MAX_INPUT_BYTES = 24000
+UNKNOWN_STEP_ERROR = '本次模型结果与费用未知，原预留已保留；已停止自动重试，可主动重试'
 
 def groups(items, key):
     result=[]; group=[]
@@ -88,9 +90,15 @@ class Worker:
             from server.memos.events import generate as memo_reminders
             memo_reminders(db,now)
             reports.schedule(db,now)
-            # A dead worker's claimed call was already charged. Recover without unbounded retries.
+            db.execute("UPDATE ai_costs SET status='unknown' WHERE status='reserved' AND created_at<?",((now-timedelta(seconds=180)).isoformat(),))
+            # An expired paid claim may have reached the provider. Never replay it automatically.
+            metered=any(getattr(p,'metered',False) for p in (self.primary,self.backup) if p)
+            for expired in list(db.execute('SELECT report_id,claim_token FROM report_tasks WHERE claim_token IS NOT NULL AND lease_until<?',(stamp,))):
+                if metered or db.execute('SELECT 1 FROM ai_costs WHERE id=?',(expired['claim_token'],)).fetchone():
+                    budget.unknown(db,expired['claim_token'])
+                    self._park_unknown(db,expired['report_id'])
             db.execute("UPDATE report_tasks SET claim_token=NULL,lease_until=NULL WHERE lease_until<?",(stamp,))
-            db.execute("UPDATE report_tasks SET next_attempt=?,failures=0,rounds=0,progress_json='{}' WHERE config_sig IS NOT NULL AND config_sig!=?",(stamp,self.config_sig))
+            db.execute("UPDATE report_tasks SET next_attempt=?,failures=0,rounds=0,progress_json='{}' WHERE config_sig IS NOT NULL AND config_sig!=? AND report_id NOT IN (SELECT id FROM reports WHERE error=?)",(stamp,self.config_sig,UNKNOWN_STEP_ERROR))
             db.execute('UPDATE report_tasks SET config_sig=?',(self.config_sig,))
             db.commit()
         self._notifications(now)
@@ -150,7 +158,14 @@ class Worker:
                 db.execute("UPDATE reports SET status='pending',error='已达到每日模型调用上限，保留待办' WHERE id=?",(row['id'],))
                 db.execute('UPDATE report_tasks SET next_attempt=? WHERE report_id=?',(tomorrow.timestamp(),row['id']))
                 db.commit(); return
-            token=str(uuid4())
+            token=str(uuid4());cost_id=None
+            if getattr(provider,'metered',False):
+                try:cost_id=budget.reserve(db,'monthly',now=now)
+                except budget.BudgetError as exc:
+                    db.execute("UPDATE reports SET status='failed',error=? WHERE id=?",(exc.code,row['id']))
+                    db.execute('UPDATE report_tasks SET next_attempt=? WHERE report_id=?',(stamp+300,row['id']))
+                    db.commit();return
+                token=cost_id  # Reuse the opaque claim UUID to correlate an expired paid call.
             db.execute('UPDATE model_usage SET calls=calls+1 WHERE day=?',(day,))
             db.execute('UPDATE report_tasks SET claim_token=?,lease_until=?,failures=failures+1 WHERE report_id=?',(token,stamp+120,row['id']))
             db.execute("UPDATE reports SET status='running',error=NULL WHERE id=?",(row['id'],))
@@ -163,19 +178,24 @@ class Worker:
             if not valid or reports.state(before_call)['automation_paused'] or reports.state(before_call)['restore_id']!=task['restore_id'] or (row['scope']=='shared' and not before_call.execute('SELECT 1 FROM families WHERE id=? AND archived=0',(row['owner_id'],)).fetchone()):
                 before_call.commit();return
             before_call.commit()
-        error=None
+        error=None;usage=None
         try:
-            output=validate(payload,provider.call(payload))
+            response=provider.call(payload)
+            usage=getattr(response,'usage',None)
+            output=validate(payload,response)
         except ProviderError as exc:
-            error=exc.kind
+            error=exc.kind;usage=exc.usage or usage
         except Exception:
             error='transient'
         with connect(self.db_path) as db:
             db.execute('BEGIN IMMEDIATE')
+            uncertain=bool(cost_id and not budget.settle(db,cost_id,usage))
             live=db.execute('SELECT * FROM report_tasks WHERE report_id=? AND claim_token=?',(row['id'],token)).fetchone()
             if not live or reports.state(db)['automation_paused'] or reports.state(db)['restore_id']!=task['restore_id'] or (row['scope']=='shared' and not db.execute('SELECT 1 FROM families WHERE id=? AND archived=0',(row['owner_id'],)).fetchone()) or reports.version(reports.snapshot(db,row['scope'],row['owner_id'],row['month']))!=current:
                 db.commit(); return
             live=dict(live)
+            if uncertain:
+                self._park_unknown(db,row['id']);db.commit();return
             if error:
                 self._failure(db,live,day,stamp,error); db.commit(); return
             progress.setdefault('providers',[])
@@ -203,6 +223,10 @@ class Worker:
             else:
                 db.execute('UPDATE report_tasks SET progress_json=?,claim_token=NULL,lease_until=NULL,failures=0,next_attempt=? WHERE report_id=?',(canonical_json(progress),stamp,row['id']))
             db.commit()
+
+    def _park_unknown(self,db,report_id):
+        db.execute("UPDATE reports SET status='failed',error=? WHERE id=?",(UNKNOWN_STEP_ERROR,report_id))
+        db.execute('UPDATE report_tasks SET next_attempt=?,claim_token=NULL,lease_until=NULL WHERE report_id=?',(1e30,report_id))
 
     def _failure(self,db,task,day,stamp,kind):
         failures=task['failures']

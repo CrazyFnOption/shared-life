@@ -2,6 +2,8 @@
 import { computed, defineAsyncComponent, nextTick, ref, watch } from 'vue'
 import type { Source } from '../types'
 import { sameSource, sourceKey } from '../sources'
+import PlanAiWorkspace from './PlanAiWorkspace.vue'
+import type { AiInputDraft } from './ai'
 import MemoAttachments from '../memos/MemoAttachments.vue'
 const MarkdownEditor = defineAsyncComponent(() => import('../MarkdownEditor.vue'))
 import { trapDialogTab } from '../memos/dialog'
@@ -13,9 +15,14 @@ import '../memos/memos.css'
 import './plans.css'
 import './modern-plans.css'
 const props=withDefaults(defineProps<{source:Source;scopeLabel:string;snapshot:PlanSnapshot;writable?:boolean;loading?:boolean;error?:string;result?:PlanCommandResult;focusedTaskIds?:string[];initialDraft?:PlanEditorDraft}>(),{writable:false,loading:false,error:'',focusedTaskIds:()=>[]})
-const emit=defineEmits<{back:[];command:[command:PlanCommand];focus:[command:PlanFocusCommand];'request-attachment':[command:PlanAttachmentCommand];'draft-change':[value:PlanDraftChange]}>()
+const emit=defineEmits<{back:[];command:[command:PlanCommand];focus:[command:PlanFocusCommand];'request-attachment':[command:PlanAttachmentCommand];'draft-change':[value:PlanDraftChange];'ai-adopted':[value:{source:Source;plan_id:string}]}>()
 type Editor=PlanEditorDraft
 const tab=ref<'wish'|'plan'>('wish'),selected=ref(''),taskId=ref(''),creator=ref('all'),archived=ref(false),editor=ref<Editor>(),editorSource=ref<Source>(),pending=ref(''),operationError=ref(''),notice=ref(''),nativeComposing=ref(false),editorComposing=ref(false),heading=ref<HTMLElement>(),deleteReason=ref(''),deleteDialog=ref(false)
+const aiOpen=ref(false),aiInputDrafts=ref<Record<string,AiInputDraft>>({}),adoptionTarget=ref('')
+const aiDraftKey=computed(()=>sourceKey(props.source)+':'+(record.value?.id??''))
+function aiDraftChanged(value:{source:Source;record_id:string;draft:AiInputDraft}){aiInputDrafts.value[sourceKey(value.source)+':'+value.record_id]={...value.draft,attachment_ids:[...value.draft.attachment_ids]}}
+function aiAdopted(value:{source:Source;plan_id:string}){if(!sameSource(value.source,props.source))return;aiOpen.value=false;selected.value=value.plan_id;taskId.value='';adoptionTarget.value=value.plan_id;notice.value='已采纳，正在同步正式计划…';emit('ai-adopted',value)}
+function aiEditMaterials(){aiOpen.value=false;notice.value='可编辑正文与资料，保存并同步后再次进入 AI 规划。'}
 const composing=computed(()=>nativeComposing.value||editorComposing.value)
 let submitted:PlanOperation|undefined
 let navigationEpoch=0
@@ -32,8 +39,8 @@ function entityLabel(entity:string){return entity==='wish'?'愿望':entity==='pl
 function name(id:string){return props.snapshot.users.find(u=>u.id===id)?.display_name??'原成员'}
 function stepTasks(id:string){return props.snapshot.tasks.filter(t=>t.stage_id===id&&!t.deleted).sort((a,b)=>a.position-b.position||a.id.localeCompare(b.id))}
 function focusHeading(){void nextTick(()=>heading.value?.focus())}
-function open(item:PlanRecord){selected.value=item.id;taskId.value='';operationError.value='';focusHeading()}
-function back(){if(pending.value)return;if(editor.value){cancel();return}if(taskId.value){taskId.value='';focusHeading();return}if(selected.value){selected.value='';focusHeading();return}emit('back')}
+function open(item:PlanRecord){aiOpen.value=false;adoptionTarget.value='';selected.value=item.id;taskId.value='';operationError.value='';focusHeading()}
+function back(){if(aiOpen.value){aiOpen.value=false;return}if(pending.value)return;if(editor.value){cancel();return}if(taskId.value){taskId.value='';focusHeading();return}if(selected.value){selected.value='';focusHeading();return}emit('back')}
 function start(entity:Editor['entity'],item?:PlanRecord|PlanTask|PlanStage,fromWish?:PlanRecord){
  if(!props.writable||pending.value)return
  editorSource.value={...props.source};operationError.value=''
@@ -56,7 +63,7 @@ function openTarget(id:string):boolean{
  if(!foundTask)return false
  selected.value=foundTask.plan_id;taskId.value=foundTask.id;deleteDialog.value=false;operationError.value='';focusHeading();return true
 }
-function resetNavigation(){navigationEpoch++;tab.value='wish';selected.value='';taskId.value='';editor.value=undefined;editorSource.value=undefined;deleteDialog.value=false;deleteOpener=null;creator.value='all';archived.value=false;operationError.value='';notice.value=''}
+function resetNavigation(){navigationEpoch++;aiOpen.value=false;adoptionTarget.value='';tab.value='wish';selected.value='';taskId.value='';editor.value=undefined;editorSource.value=undefined;deleteDialog.value=false;deleteOpener=null;creator.value='all';archived.value=false;operationError.value='';notice.value=''}
 const restorableDraft=computed(()=>props.writable && props.initialDraft && sameSource(props.initialDraft.source,props.source)?props.initialDraft:undefined)
 defineExpose({openTarget,resetNavigation})
 function cancel(){if(pending.value)return;if(editorSource.value)emit('draft-change',{source:{...editorSource.value},dirty:false,draft:null});editor.value=undefined;editorSource.value=undefined;operationError.value='';focusHeading()}
@@ -111,13 +118,15 @@ watch(()=>props.result,result=>{
  if(submitted?.kind==='delete'){if(submitted.entity_type==='task')taskId.value='';else selected.value=''}
  submitted=undefined
 })
-watch(()=>sourceKey(props.source),()=>{navigationEpoch++;saveContext=undefined;selected.value='';taskId.value='';editor.value=undefined;editorSource.value=undefined;pending.value='';operationError.value='';notice.value='';deleteDialog.value=false;deleteOpener=null;submitted=undefined;creator.value='all';archived.value=false})
+watch(()=>sourceKey(props.source),()=>{navigationEpoch++;aiOpen.value=false;adoptionTarget.value='';saveContext=undefined;selected.value='';taskId.value='';editor.value=undefined;editorSource.value=undefined;pending.value='';operationError.value='';notice.value='';deleteDialog.value=false;deleteOpener=null;submitted=undefined;creator.value='all';archived.value=false})
 watch(editor,value=>{if(value && editorSource.value && sameSource(value.source,editorSource.value) && sameSource(editorSource.value,props.source))emit('draft-change',{source:{...editorSource.value},dirty:true,draft:copyPlanDraft(value)})},{deep:true})
 
 </script>
 
 <template>
 <section class="plans-workspace" aria-label="愿望与计划">
+ <PlanAiWorkspace v-if="aiOpen && record" :key="aiDraftKey" :source="source" :record="record" :target-plan="record.kind==='plan'?record:records.find(p=>p.source_wish_id===record!.id && p.kind==='plan')" :users="snapshot.users" :input-draft="aiInputDrafts[aiDraftKey]" :writable="writable" @close="aiOpen=false" @draft-change="aiDraftChanged" @adopted="aiAdopted" @edit-materials="aiEditMaterials" />
+ <template v-else>
  <header class="wp-head" :class="{ 'is-root': !selected && !editor }"><div v-if="selected || editor" class="wp-head-meta"><button type="button" class="wp-back" :disabled="!!pending" @click="back">‹ 返回</button></div><div class="wp-head-copy"><h2 ref="heading" tabindex="-1">{{ headingText }}</h2></div><button v-if="!editor && !selected && writable" class="wp-add" :disabled="!!pending" @click="start(tab)">＋ 新建</button><button v-else-if="!editor && current && writable && !record?.archived" class="wp-add" :disabled="!!pending" @click="start(task ? 'task' : record!.kind,current)">编辑</button></header>
  <p v-if="error || operationError" class="wp-error" role="alert">{{ error || operationError }}</p><p v-if="loading" class="wp-muted" role="status">正在读取本机记录…</p>
  <main class="wp-body">
@@ -140,6 +149,7 @@ watch(editor,value=>{if(value && editorSource.value && sameSource(value.source,e
    <p class="wp-category">{{ task?'计划任务':record.kind==='wish'?record.wish_kind:'专项计划' }}{{ record.archived?' · 已归档':'' }}</p><h3 class="wp-detail-title">{{ current.title }}</h3><div class="wp-meta"><span>{{ name(current.author_id) }} 创建</span><span v-if="task">{{ task.completed?'已完成':'进行中' }}</span><span v-else-if="record.kind==='wish'">{{ record.realized?'已实现':'期待实现' }}</span><span v-if="task?.due_date || record.target_date">{{ task ? '任务日期' : '目标日期' }} {{ task?.due_date || record.target_date }}</span></div>
    <p v-if="task" class="wp-muted">负责人：{{ task.assignee_ids.length?task.assignee_ids.map(name).join('、'):'待分配' }}</p>
    <p v-if="record.source_wish_id && !task" class="wp-source"><button v-if="records.some(r=>r.id===record!.source_wish_id)" class="wp-link" @click="open(records.find(r=>r.id===record!.source_wish_id)!)">来源愿望：{{ records.find(r=>r.id===record!.source_wish_id)?.title }}</button><span v-else class="wp-muted">来源愿望已不可用。</span></p>
+   <div v-if="!task && !record.archived && writable" class="wp-ai-entry"><button type="button" class="wp-save" :disabled="!!pending" @click="aiOpen=true">{{ record.kind==='wish'?'和 AI 一起规划':'和 AI 讨论计划' }}</button></div>
    <section class="wp-section"><h3>正文与资料</h3><div class="wp-markdown"><slot name="markdown" :markdown="current.body_markdown"><p class="wp-copy">{{ current.body_markdown || '还没有补充正文。' }}</p></slot></div><MemoAttachments v-if="current.attachments.length" :files="attachmentViews(current.attachments)" @request="requestAttachment" /></section>
    <div v-if="writable" class="wp-actions">
     <template v-if="task && !record.archived"><button class="wp-save" :disabled="!!pending" @click="complete(task)">{{ task.completed?'重新打开任务':'标记完成' }}</button><button class="wp-link" :disabled="!!pending" :aria-pressed="focusedTaskIds.includes(task.id)" @click="focusTask(task)">{{ focusedTaskIds.includes(task.id)?'移出生活备忘待办':'加入生活备忘待办' }}</button><p class="wp-muted">家庭成员完成一次即可。任务日期不会自动成为日程。</p></template>
@@ -152,8 +162,9 @@ watch(editor,value=>{if(value && editorSource.value && sameSource(value.source,e
    </template>
    <section v-if="requests.length" class="wp-section"><h3>删除申请</h3><div v-for="request in requests" :key="request.id" class="wp-note"><p>{{ name(request.requester_id) }} 申请删除{{ request.reason?`：${request.reason}`:'' }}</p><div v-if="request.author_id===source.user_id && writable" class="wp-inline-actions"><button class="wp-link" :disabled="!!pending" @click="mutate('deletion_request',request,'decide',{accepted:true})">同意删除</button><button class="wp-link" :disabled="!!pending" @click="mutate('deletion_request',request,'decide',{accepted:false})">拒绝</button></div><p v-else class="wp-muted">等待创建者处理。</p></div></section>
    <footer v-if="writable" class="wp-record-footer"><button v-if="!task" class="wp-link" :disabled="!!pending" @click="mutate(record.kind,record,'archive',{archived:!record.archived})">{{ record.archived?'取消归档':'归档' }}</button><button class="wp-link wp-danger" :disabled="!!pending || requests.some(r=>r.requester_id===source.user_id)" @click="showDeleteDialog">{{ current.author_id===source.user_id?'删除'+(task?'任务':entityLabel(record.kind)):'申请删除' }}</button></footer>
-  </article><p v-else class="wp-empty">记录已不可用，请返回列表。</p>
+  </article><p v-else class="wp-empty">{{ adoptionTarget===selected?'正在同步采纳后的正式计划…':'记录已不可用，请返回列表。' }}</p>
  </main><p role="status" class="wp-notice">{{ notice }}</p>
  <div v-if="deleteDialog" class="memo-overlay" @keydown.esc.prevent.stop="!$event.isComposing && closeDeleteDialog()"><form class="memo-modal" role="dialog" aria-modal="true" aria-labelledby="wp-delete-title" @submit.prevent="deleteItem" @keydown="trapDialogTab" @compositionstart="nativeComposing=true" @compositionend="nativeComposing=false"><h3 id="wp-delete-title" ref="deleteTitle" tabindex="-1">{{ current?.author_id===source.user_id?'确认删除？':'申请创建者删除' }}</h3><p class="wp-muted">{{ current?.author_id===source.user_id?'删除后不再显示此记录及其下属内容。':'共享记录由原创建者决定是否删除。' }}</p><label v-if="current?.author_id!==source.user_id" class="wp-field">原因（选填）<textarea v-model="deleteReason" maxlength="2000"></textarea></label><div class="wp-form-actions"><button type="button" class="wp-link" @click="closeDeleteDialog">取消</button><button class="wp-save" type="submit">{{ current?.author_id===source.user_id?'确认删除':'提交申请' }}</button></div></form></div>
+ </template>
 </section>
 </template>

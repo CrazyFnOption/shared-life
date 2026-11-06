@@ -42,6 +42,7 @@ def create_app(
     secure_cookies: bool = False,
     worker: Worker | None = None,
     start_worker: bool = False,
+    planning_provider=None,
 ) -> FastAPI:
     initialize_database(db_path)
     from server.automation.backups import validate_database
@@ -62,6 +63,8 @@ def create_app(
                 await asyncio.to_thread(thread.join)
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
     app.state.worker = worker
+    from server.automation.providers import configured_provider
+    app.state.planning_provider=planning_provider if planning_provider is not None else configured_provider('planning')
     origins = set(allowed_origins if allowed_origins is not None else [
         "http://127.0.0.1:8765", "http://localhost:8765"
     ])
@@ -493,4 +496,6 @@ def create_app(
     register_memos(app,Database,ExpectedUser)
     from server.plans.routes import register_routes as register_plans
     register_plans(app,Database,ExpectedUser)
+    from server.ai.routes import register_routes as register_ai
+    register_ai(app,Database,ExpectedUser,db_path)
     return app

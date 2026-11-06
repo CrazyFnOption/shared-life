@@ -1,9 +1,9 @@
-"""Explicit atomic local migration of a supported old database to schema 10."""
+"""Explicit atomic local migration of a supported old database to the current schema."""
 import argparse
 import json
 from pathlib import Path
 from datetime import datetime,UTC
-from server.accounting.db import migrate_database,connect,preflight
+from server.accounting.db import SCHEMA_VERSION,migrate_database,connect,preflight
 from server.memos.migration_guard import capture,verify,summary
 
 
@@ -25,11 +25,11 @@ def main():
             version=db.execute('PRAGMA user_version').fetchone()[0]
         if args.evidence:
             from server.automation.backups import write_private
-            write_private(args.evidence,{'created_at':datetime.now(UTC).isoformat(),'input_schema':status,'input_schema_version':input_version,'schema':version,'changed':changed,'original_rows_preserved':True,'original_tables':summary(before),'minimum_compatible_program':'full shared-life schema10 reader/writer; never schema9/B/A','production_authorization_inferred':False})
+            write_private(args.evidence,{'created_at':datetime.now(UTC).isoformat(),'input_schema':status,'input_schema_version':input_version,'schema':version,'changed':changed,'original_rows_preserved':True,'original_tables':summary(before),'minimum_compatible_program':f'full shared-life schema{SCHEMA_VERSION} reader/writer; earlier schema readers are incompatible','production_authorization_inferred':False})
     except Exception as error:
         state='migration committed; evidence verification/write did not complete' if changed else 'no migration committed; source retained or transaction rolled back'
         parser.exit(1,f'Migration failed ({type(error).__name__}); {state}.\n')
-    print('Migrated to schema 10.' if changed else 'Schema 10 verified; no migration needed.')
+    print(f'Migrated to schema {SCHEMA_VERSION}.' if changed else f'Schema {SCHEMA_VERSION} verified; no migration needed.')
 
 
 if __name__=='__main__':

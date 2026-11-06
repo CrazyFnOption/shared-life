@@ -136,7 +136,7 @@ def test_old_receipt_and_hash_survive_007_and_empty_retries(case):
     with connect(path) as db:
         for old_table,(columns,rows) in old.items():
             actual=[tuple(r) for r in db.execute(f"SELECT {','.join(columns)} FROM {old_table} ORDER BY rowid")]
-            if old_table=='schema_migrations':actual=[r for r in actual if r[0] not in {'multi-family-v2','memos-v1','plans-v1','memo-archive-v1'}]
+            if old_table=='schema_migrations':actual=[r for r in actual if r[0] not in {'multi-family-v2','memos-v1','plans-v1','memo-archive-v1','ai-v2'}]
             assert actual==rows
         for name in ('change_requests', 'category_changes'):
             assert not db.execute(f"SELECT 1 FROM {name} WHERE rejection_reason!=''").fetchone()

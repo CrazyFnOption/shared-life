@@ -53,7 +53,7 @@ def test_9_to_10_preserves_every_old_column_and_startup_is_idempotent(schema9,tm
     result=subprocess.run([sys.executable,'-m','scripts.migrate_memos','--database',str(schema9),'--evidence',str(evidence)],capture_output=True,text=True)
     assert result.returncode==0,result.stderr
     proof=json.loads(evidence.read_text())
-    assert proof['schema']==10 and proof['original_rows_preserved'] and proof['input_schema']=='previous' and proof['input_schema_version']==9
+    assert proof['schema']==database.SCHEMA_VERSION and proof['original_rows_preserved'] and proof['input_schema']=='previous' and proof['input_schema_version']==9
     with connect(schema9,read_only=True) as db:
         verify(db,before)
         assert db.execute('SELECT archive_state_json,completed,last_cycle FROM memos').fetchone()[:]==('{}',1,'2026-11-04')
@@ -83,7 +83,7 @@ def test_9_to_10_rolls_back_ddl_marker_version_and_old_values(schema9,monkeypatc
 
 
 @pytest.mark.parametrize('alteration',[
-    'PRAGMA user_version=11',
+    'PRAGMA user_version=12',
     "DELETE FROM schema_migrations WHERE name='memo-archive-v1'",
     'PRAGMA user_version=9',
     'ALTER TABLE memos ADD COLUMN unknown_future TEXT',

@@ -16,6 +16,11 @@ def anchor(day,clock=None):
     return datetime.combine(date.fromisoformat(day) if isinstance(day,str) else day,time.fromisoformat(clock or '00:00'),ZONE)
 
 
+def reminder_time(rule,schedule=None):
+    if rule['mode']=='absolute':return local_time(rule['at'])
+    return anchor(schedule['start_date'],schedule['start_time'])-timedelta(minutes=rule['offset_minutes'])
+
+
 def dates(rule,start,end):
     origin=date.fromisoformat(rule['start_date']);until=date.fromisoformat(rule['until']) if rule.get('until') else end
     end=min(end,until);start=max(start,origin)
@@ -69,4 +74,30 @@ def schedule_occurrences(record,start,end):
         while day<=min(end,last):
             result.append({'memo_id':record['id'],'record_version':record['version'],'date':day.isoformat(),'start_date':occurrence.isoformat(),'end_date':until.isoformat() if schedule.get('end_date') else None,'start_time':schedule['start_time'],'end_time':schedule['end_time']})
             day+=timedelta(days=1)
+    return result
+
+
+def reminder_occurrences(record,start,end,effective_from=None):
+    """Project reminder clocks, preserving the legacy planned occurrence key."""
+    if record.get('deleted'):return []
+    completed_cycle=bool(record.get('completed') and record.get('recurrence') and record.get('completed_at'))
+    if (record.get('archived') or record.get('completed')) and not completed_cycle:return []
+    recurrence=record.get('recurrence');schedule=record.get('schedule');result=[];seen=set()
+    archived={item['start_date'] for item in record.get('archived_occurrences',[]) if item.get('archived_at')}
+    for rule in record.get('reminders',[]):
+        if rule['mode']=='relative' and not schedule:continue
+        initial=reminder_time(rule,schedule)
+        origin=date.fromisoformat(recurrence['start_date']) if recurrence else date.fromisoformat(schedule['start_date']) if rule['mode']=='relative' else initial.date()
+        shift=initial.date()-origin
+        planned=dates(recurrence,start-shift,end-shift) if recurrence else [origin]
+        for day in planned:
+            if record['kind']=='schedule' and day.isoformat() in archived:continue
+            when=initial+timedelta(days=(day-origin).days)
+            if effective_from and when<effective_from[rule['id']]:continue
+            if completed_cycle and when.date()<=local_time(record['completed_at']).date():continue
+            if not start<=when.date()<=end or when.isoformat() in seen:continue
+            seen.add(when.isoformat())
+            result.append({'memo_id':record['id'],'record_version':record['version'],'date':when.date().isoformat(),
+                           'start_date':when.date().isoformat(),'start_time':when.strftime('%H:%M'),
+                           'end_date':None,'end_time':None,'reminder_id':rule['id'],'occurrence_date':day.isoformat()})
     return result

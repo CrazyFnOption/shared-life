@@ -26,6 +26,7 @@ interface RecordView {
   version: number
   title: string
   body: string
+  created_at?: string | null
   creator_id: string
   creator_name: string
   attachments: MemoAttachmentView[]
@@ -40,6 +41,9 @@ interface RecordView {
   reminders?: MemoReminder[]
   recurrence?: MemoRecurrence | null
   can_edit?: boolean
+  category_id?: string
+  focused?: boolean
+  focus_position?: number
 }
 export interface MemoView extends RecordView {
   kind: 'memo'
@@ -51,6 +55,7 @@ export interface MemoView extends RecordView {
 }
 export interface ScheduleView extends RecordView {
   kind: 'schedule'
+  calendar_projection?: boolean
   occurrence_key?: string
   occurrence_date?: string
   series_schedule?: MemoSchedule

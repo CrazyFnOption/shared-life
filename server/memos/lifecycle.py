@@ -22,38 +22,17 @@ def occurrence_schedule(schedule,occurrence):
     return shifted
 
 
-def deadline(schedule,occurrence=None):
-    start=date.fromisoformat(schedule['start_date'])
-    end=date.fromisoformat(schedule.get('end_date') or schedule['start_date'])
-    if occurrence:end+=date.fromisoformat(occurrence)-start
-    if schedule.get('end_date') and schedule.get('end_time'):
-        return anchor(end,schedule['end_time'])
-    return anchor(end+timedelta(days=1))
-
-
 def occurrence_day(record,requested,now):
+    # New unified completion addresses the memo. Explicit old queued payloads
+    # still address their original schedule occurrence.
+    if not requested:return None
     from .service import fail
-    if requested and record['kind']=='schedule' and any(item['start_date']==requested for item in record.get('archived_occurrences',[])):return requested
-    if not record['recurrence']:
-        if requested:fail('occurrence_requires_recurrence',422)
-        return None
-    if record['kind']!='schedule':
-        if requested:fail('occurrence_requires_schedule',422)
-        return None
-    if requested:
-        day=date.fromisoformat(requested)
-        historical=any(item['start_date']==requested for item in record.get('archived_occurrences',[]))
-        if not historical and day not in dates(record['recurrence'],day,day):fail('invalid_occurrence',422)
-        return requested
-    # The old complete/archive payload remains valid: it addresses the most
-    # recent planned occurrence, or the first one before the series begins.
-    planned=dates(record['recurrence'],date.fromisoformat(record['recurrence']['start_date']),now.date())
-    archived={item['start_date'] for item in record.get('archived_occurrences',[]) if item.get('archived_at')}
-    active=[day for day in planned if day.isoformat() not in archived]
-    if active:return active[-1].isoformat()
-    future=dates(record['recurrence'],now.date()+timedelta(days=1),date(2099,12,31))
-    if future:return future[0].isoformat()
-    return (planned[-1] if planned else date.fromisoformat(record['recurrence']['start_date'])).isoformat()
+    if record['kind']=='schedule' and any(item['start_date']==requested for item in record.get('archived_occurrences',[])):return requested
+    if not record['recurrence']:fail('occurrence_requires_recurrence',422)
+    if record['kind']!='schedule':fail('occurrence_requires_schedule',422)
+    day=date.fromisoformat(requested)
+    if day not in dates(record['recurrence'],day,day):fail('invalid_occurrence',422)
+    return requested
 
 
 def legacy_archive_time(db,row):
@@ -79,30 +58,6 @@ def metadata(db,row):
         at=row['completed_at'] if row['completed'] else legacy_archive_time(db,row)
     return {'archived':archived,'archived_at':at,'auto_archive_suppressed':bool(value.get('suppressed')),
             'archived_occurrences':[{'start_date':day,**entry} for day,entry in sorted(value.get('occurrences',{}).items())]}
-
-
-def expire(db,row,now):
-    """Called by the existing reminder worker/snapshot transaction."""
-    if row['kind']!='schedule' or row['archived']:return row
-    from .service import memo_dto
-    from .deletions import invalidate
-    from .notifications import cancel_invalid
-    record=memo_dto(db,row);value=state(row);changed=False
-    if record['recurrence']:
-        entries=value.setdefault('occurrences',{})
-        for day in dates(record['recurrence'],date.fromisoformat(record['recurrence']['start_date']),now.date()):
-            key=day.isoformat();entry=entries.get(key,{})
-            if entry.get('archived_at') or entry.get('suppressed') or deadline(record['schedule'],key)>now:continue
-            entries[key]={'archived_at':now.isoformat(),'completed':False,'schedule':occurrence_schedule(record['schedule'],key)};changed=True
-    elif not value.get('suppressed') and deadline(record['schedule'])<=now:
-        value.update(archived_at=now.isoformat(),reason='expired')
-        db.execute('UPDATE memos SET archived=1 WHERE id=?',(row['id'],));changed=True
-    if changed:
-        save(db,row['id'],value)
-        db.execute('UPDATE memos SET version=version+1,updated_at=? WHERE id=?',(now.isoformat(),row['id']))
-        invalidate(db,row['id']);cancel_occurrence_events(db,row['id'])
-        return db.execute('SELECT * FROM memos WHERE id=?',(row['id'],)).fetchone()
-    return row
 
 
 def event_is_archived(row,event,rule):

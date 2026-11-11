@@ -50,12 +50,12 @@ def test_completion_archives_immediately_persists_and_reopens_without_second_con
     ({'start_date':'2090-11-05','end_date':'2090-11-06','start_time':'22:00','end_time':'00:00'},'2090-11-05T23:59:59+08:00','2090-11-06T00:00:00+08:00'),
     ({'start_date':'2090-11-05','end_date':'2090-11-07','start_time':'09:00','end_time':'11:30'},'2090-11-07T11:29:59+08:00','2090-11-07T11:30:00+08:00'),
 ])
-def test_expiration_exact_boundaries(home,monkeypatch,schedule_data,before,boundary):
+def test_legacy_schedule_deadlines_do_not_archive_unfinished_memos(home,monkeypatch,schedule_data,before,boundary):
     path,app,(a,b,c)=home;clock(monkeypatch,calendar.anchor('2090-11-01'))
     item,_=schedule(a,start=schedule_data['start_date'],end=schedule_data['end_date'],start_time=schedule_data['start_time'],end_time=schedule_data['end_time'])
     generate(path,datetime.fromisoformat(before));assert not detail(a,item)['archived']
     generate(path,datetime.fromisoformat(boundary));expired=detail(a,item)
-    assert expired['archived'] and not expired['completed']
+    assert not expired['archived'] and not expired['completed']
     timestamp=expired['archived_at'];generate(path,datetime.fromisoformat(boundary)+timedelta(days=1));assert detail(a,item)['archived_at']==timestamp
     restored=saved(op(a,'memo',item['id'],'archive',{'archived':False},expired['version']))
     generate(path,datetime.fromisoformat(boundary)+timedelta(days=2))
@@ -72,7 +72,7 @@ def test_schedule_manual_completion_and_recurrence_only_archive_one_occurrence(h
     assert not any(o['start_date']=='2090-11-05' for o in calendar_items)
     assert any(o['start_date']=='2090-11-06' for o in calendar_items)
     generate(path,calendar.anchor('2090-11-08','11:30'));expired=detail(a,item)
-    assert {e['start_date'] for e in expired['archived_occurrences'] if e['archived_at']}=={'2090-11-05','2090-11-06'}
+    assert {e['start_date'] for e in expired['archived_occurrences'] if e['archived_at']}=={'2090-11-05'}
     restored=saved(op(a,'memo',item['id'],'complete',{'completed':False,'occurrence_date':'2090-11-05'},expired['version']))
     generate(path,calendar.anchor('2090-11-08','12:00'))
     assert next(e for e in detail(a,item)['archived_occurrences'] if e['start_date']=='2090-11-05')['archived_at'] is None
@@ -102,7 +102,7 @@ def test_old_completed_and_archived_rows_project_without_rewriting_history(home,
 
 
 def test_overlapping_recurrence_completion_only_cancels_its_own_reminder(home,monkeypatch):
-    path,app,(a,b,c)=home;clock(monkeypatch,calendar.anchor('2090-11-05','10:00'))
+    path,app,(a,b,c)=home;clock(monkeypatch,calendar.anchor('2090-11-05','08:00'))
     reminder={'id':str(uuid4()),'mode':'relative','at':None,'offset_minutes':0,'recipient_ids':[],'all_members':False}
     item,_=schedule(a,repeat=True,end='2090-11-07',start_time='09:00',end_time='11:00',reminders=[reminder])
     generate(path,calendar.anchor('2090-11-05','10:00'));generate(path,calendar.anchor('2090-11-06','10:00'))

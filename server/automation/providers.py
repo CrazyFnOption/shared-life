@@ -7,6 +7,8 @@ import stat
 import re
 import time
 import ssl
+from pathlib import Path
+from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 from server.accounting.ledger import canonical_json
@@ -189,10 +191,22 @@ class PushError(Exception):
 class WebPush:
     def send(self,subscription,payload):
         from pywebpush import webpush, WebPushException
+        from py_vapid import Vapid
+        private_key=os.environ['SHARED_EXPENSE_VAPID_PRIVATE_KEY']
+        subject=os.environ['SHARED_EXPENSE_VAPID_SUBJECT']
+        if subject.lower().startswith('https:'):
+            contact=urlsplit(subject)
+            # py-vapid's strict subject regex rejects valid HTTPS URLs with ports.
+            # Validate the URL here and preserve the configured subject and key.
+            if contact.scheme!='https' or not contact.hostname or contact.username or contact.password or any(c.isspace() for c in subject):
+                raise PushError()
+            contact.port  # Validate an optional port before bypassing that regex.
+            private_key=Vapid.from_pem(Path(private_key).read_bytes())
+            private_key.conf['no-strict']=True
         try:
             webpush(subscription_info=subscription,data=json.dumps(payload),
-                    vapid_private_key=os.environ['SHARED_EXPENSE_VAPID_PRIVATE_KEY'],
-                    vapid_claims={'sub':os.environ['SHARED_EXPENSE_VAPID_SUBJECT']},timeout=20)
+                    vapid_private_key=private_key,
+                    vapid_claims={'sub':subject},timeout=20,ttl=86400)
         except WebPushException as exc:
             raise PushError(exc.response.status_code if exc.response is not None else None) from None
 

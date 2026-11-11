@@ -59,6 +59,7 @@ def memo_dto(db,row):
     result={key:row[key] for key in ('id','scope','author_id','updated_by','category_id','title','body_markdown','version','created_at','updated_at','kind')}
     result.update(family_id=row['namespace'] if row['scope']=='shared' else None,attachments=descriptors(db,row['id']))
     result.update({key:bool(row[key]) for key in ('completed','archived','deleted')})
+    result['completed_at']=row['completed_at']
     result.update({key:json.loads(row[key+'_json']) if row[key+'_json'] else None for key in ('schedule','reminders','recurrence')})
     from .lifecycle import metadata
     result.update(metadata(db,row))
@@ -201,17 +202,17 @@ def apply_record(db,user_id,body,src):
     if kind in ('create','update'):
         data=parse(models.MemoData,body.data)
         if existing and (existing['kind']!=data['kind'] or existing['archived']):fail('memo_archived' if existing['archived'] else 'memo_kind_immutable')
-        if data['kind']=='memo':
-            if not data['category_id'] or data['schedule'] is not None:fail('invalid_memo_schedule',422)
-            require_record(db,user_id,data['category_id'],category=True)
-        elif data['category_id'] is not None or not data['schedule']:fail('invalid_schedule',422)
+        if data['category_id']:require_record(db,user_id,data['category_id'],category=True)
+        if data['kind']=='schedule' and not data['schedule']:fail('invalid_schedule',422)
         if data['schedule'] and data['recurrence'] and data['schedule']['start_date']!=data['recurrence']['start_date']:fail('recurrence_start_mismatch',422)
         ids=[r['id'] for r in data['reminders']]
         if len(set(ids))!=len(ids):fail('duplicate_reminder',422)
+        # Recovery validation still accepts historical multi-reminder records.
+        if len(ids)>1:fail('single_reminder_required',422)
         allowed={user_id} if src['scope']=='private' else {r[0] for r in db.execute('SELECT user_id FROM family_members WHERE family_id=? AND active=1',(src['family_id'],))}
         author=existing['author_id'] if existing else user_id
         for reminder in data['reminders']:
-            if reminder['mode']=='relative' and data['kind']!='schedule':fail('relative_reminder_requires_schedule',422)
+            if reminder['mode']=='relative' and not data['schedule']:fail('relative_reminder_requires_schedule',422)
             if not reminder['recipient_ids'] and not reminder['all_members']:reminder['recipient_ids']=[author]
             if not set(reminder['recipient_ids'])<=allowed:fail('reminder_recipient_unavailable',422)
         schedule=json.dumps(data['schedule']) if data['schedule'] else None

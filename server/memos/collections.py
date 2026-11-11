@@ -23,7 +23,7 @@ def resolve(db,user_id,target):
     from .service import require_record,memo_dto,fail
     if target['kind']=='memo':
         row=require_record(db,user_id,target['id'])
-        if row['kind']!='memo' or row['archived']:fail('memo_not_found',404)
+        if row['archived']:fail('memo_not_found',404)
         return memo_dto(db,row)
     from server.plans.service import task_reference
     return task_reference(db,user_id,target['id'])

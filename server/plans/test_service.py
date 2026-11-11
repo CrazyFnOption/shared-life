@@ -43,6 +43,20 @@ def chain(db,user):
     task=operation(db,user,'task','create',{'plan_id':plan['id'],'stage_id':stage['id'],'title':'确定日期','body_markdown':'查阅资料','assignee_ids':[user],'due_date':None,'position':0,'attachments':[]})['receipt']['record']
     return wish,plan,stage,task
 
+def test_task_creation_time_is_persisted_and_survives_later_edits(world,monkeypatch):
+    path,(a,_,_),fid=world
+    created='2090-01-01T08:00:00+00:00';monkeypatch.setattr(service,'now',lambda:created)
+    with connect(path) as db:
+        bind(db,a,fid);_,plan,stage,task=chain(db,a)
+        assert task['created_at']==created
+    monkeypatch.setattr(service,'now',lambda:'2090-01-02T08:00:00+00:00')
+    with connect(path) as db:
+        bind(db,a,fid)
+        assert service.sync(db,a)['tasks'][0]['created_at']==created
+        data={'plan_id':plan['id'],'stage_id':stage['id'],'title':'稍后修改','body_markdown':'','assignee_ids':[],'due_date':None,'position':0,'attachments':[]}
+        changed=operation(db,a,'task','update',data,task['id'],1)['receipt']['record']
+        assert changed['created_at']==created
+
 def test_shared_chain_replay_conflict_and_private_isolation(world):
     path,(a,b,c),fid=world
     with connect(path) as db:

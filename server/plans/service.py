@@ -53,6 +53,15 @@ def require(db,user_id,entity,identity,*,allow_deleted=False):
 
 def metadata(row):return {k:row[k] for k in ('id','parent_id','created_by','kind','name','mime_type','size_bytes','sha256','state')}
 def attachments(db,identity):return [metadata(r) for r in db.execute("SELECT * FROM plan_attachments WHERE parent_id=? AND state!='deleted' ORDER BY id",(identity,))]
+def task_created_at(db,task):
+    """Creation metadata lives in original receipts; old unknown times stay null."""
+    created=db.execute("SELECT receipt_json FROM plan_operations WHERE entity_type='task' AND entity_id=? AND operation_kind='create'",(task['id'],)).fetchone()
+    if created:return json.loads(created['receipt_json'])['record'].get('created_at')
+    parent=raw(db,'plan',task['plan_id'])
+    for adoption in db.execute('SELECT receipt_json FROM ai_adoptions WHERE record_id IN (?,?)',(parent['id'],parent['source_wish_id'])):
+        stamp=json.loads(adoption['receipt_json']).get('task_created_at',{}).get(task['id'])
+        if stamp:return stamp
+    return None
 def dto(db,entity,row):
     item=dict(row)
     if entity in {'wish','plan'}:
@@ -61,6 +70,7 @@ def dto(db,entity,row):
         for field in ('realized','archived','deleted'):item[field]=bool(item[field])
         item['attachments']=attachments(db,item['id'])
     elif entity=='task':
+        item['created_at']=task_created_at(db,item)
         item['assignee_ids']=json.loads(item.pop('assignee_ids_json'))
         item['completed']=bool(item['completed']);item['deleted']=bool(item['deleted'])
         item['attachments']=attachments(db,item['id'])
@@ -155,7 +165,7 @@ def apply(db,user_id,operation):
         if old:db.commit();return {'source':origin,'receipt':old}
         entity,kind,identity,base=operation.entity_type,operation.kind,str(operation.entity_id),operation.base_version
         create=kind in {'create','from_wish'}
-        row=None
+        row=None;task_creation_time=None
         if create:
             if base!=0:fail('plan_conflict')
             unique_id(db,identity)
@@ -194,6 +204,7 @@ def apply(db,user_id,operation):
             fields={k:data[k] for k in ('title','body_markdown','stage_id','due_date','position')}
             fields['assignee_ids_json']=canonical(data['assignee_ids'])
             if create:
+                task_creation_time=now()
                 fields.update(id=identity,plan_id=parent['id'],author_id=user_id,updated_by=user_id,version=1)
                 db.execute('INSERT INTO plan_tasks('+','.join(fields)+') VALUES('+','.join('?' for _ in fields)+')',tuple(fields.values()))
             else:
@@ -232,6 +243,7 @@ def apply(db,user_id,operation):
             db.execute('UPDATE plan_deletion_requests SET status=?,version=version+1 WHERE id=?',('accepted' if data['accepted'] else 'rejected',identity))
         else:fail('invalid_plan_operation',422)
         record=dto(db,entity,raw(db,entity,identity))
+        if task_creation_time is not None:record['created_at']=task_creation_time
         receipt={'op_id':str(operation.op_id),'entity_type':entity,'entity_id':identity,'version':record['version'],'record':record}
         db.execute('INSERT INTO plan_operations(user_id,op_id,entity_type,entity_id,operation_kind,request_hash,receipt_json,source_restore_id,source_scope,family_id,relation_epoch) VALUES(?,?,?,?,?,?,?,?,?,?,?)',(user_id,str(operation.op_id),entity,identity,kind,request_hash,canonical(receipt),origin['restore_id'],origin['scope'],origin['family_id'],origin['relation_epoch']))
         db.commit();return {'source':origin,'receipt':receipt}

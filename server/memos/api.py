@@ -64,9 +64,11 @@ def register_routes(app,Database,ExpectedUser):
     def occurrences(from_date:date,to_date:date,db:Database,user:ExpectedUser):
         if not 1901<=from_date.year<=2099 or not 1901<=to_date.year<=2099 or to_date<from_date or (to_date-from_date).days>365:service.fail('invalid_calendar_range',422)
         db.execute('BEGIN');src=service.source(db,user['id']);ns=service.namespace(src);items=[];versions={}
-        for row in db.execute("SELECT * FROM memos WHERE scope=? AND namespace=? AND kind='schedule' AND deleted=0 AND archived=0",(src['scope'],ns)):
+        for row in db.execute("SELECT * FROM memos WHERE scope=? AND namespace=? AND deleted=0 AND (archived=0 OR (completed=1 AND recurrence_json IS NOT NULL))",(src['scope'],ns)):
             versions[row['id']]=row['version']
-            items.extend(calendar.schedule_occurrences(service.memo_dto(db,row),from_date,to_date))
+            record=service.memo_dto(db,row)
+            effective={rule['id']:events.rule_effective_at(db,record,rule) for rule in record['reminders']}
+            items.extend(calendar.reminder_occurrences(record,from_date,to_date,effective))
         items.sort(key=lambda r:(r['date'],r['start_time'] is not None,r['start_time'] or '',r['memo_id']))
         db.commit();return {'source':src,'occurrences':items,'versions':versions}
 

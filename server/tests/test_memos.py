@@ -139,7 +139,7 @@ def test_schedule_half_hour_cross_day_optional_end_and_lunar_dates(home):
     sid=str(uuid4());data={'kind':'schedule','category_id':None,'title':'跨日日程','body_markdown':'','attachments':[],'schedule':schedule}
     item=saved(op(a,'memo',sid,'create',data));assert item['kind']=='schedule'
     r=a.get('/api/v2/memos/calendar?from_date=2026-11-04&to_date=2026-11-06',headers=headers(a));assert r.status_code==200,r.text
-    assert [x['date'] for x in r.json()['occurrences']]==['2026-11-04','2026-11-05']
+    assert not r.json()['occurrences'] # A legacy interval alone is no longer a reminder.
     completed=saved(op(a,'memo',sid,'complete',{'completed':True},1))
     assert completed['completed'] and completed['archived'] and completed['version']==2
     assert op(a,'memo',sid,'complete',{'completed':False},1).status_code==409
@@ -156,19 +156,21 @@ def test_schedule_half_hour_cross_day_optional_end_and_lunar_dates(home):
     assert calendar.dates(leap,date(2024,1,1),date(2024,12,31))[0].isoformat()==expected
 
 
-def test_multiple_reminders_dedup_fixed_repeat_and_no_duplicate_record(home):
+def test_single_reminder_dedup_fixed_repeat_and_no_duplicate_record(home,monkeypatch):
     path,app,(a,b,c)=home;fid=create(a,'family');join(a,b,fid);cat=category(a,fid)
     now=datetime(2026,2,17,12,tzinfo=calendar.ZONE)
     rule={'frequency':'daily','interval':1,'calendar':'solar','start_date':'2026-02-17','until':None,'lunar_month':None,'lunar_day':None,'lunar_leap':False}
-    reminders=[{'id':str(uuid4()),'mode':'absolute','at':'2026-02-17T09:00:00+08:00','offset_minutes':0,'recipient_ids':[],'all_members':True},{'id':str(uuid4()),'mode':'absolute','at':'2026-02-17T10:00:00+08:00','offset_minutes':0,'recipient_ids':[],'all_members':False}]
+    reminders=[{'id':str(uuid4()),'mode':'absolute','at':'2026-02-17T09:00:00+08:00','offset_minutes':0,'recipient_ids':[],'all_members':True}]
+    from server.tests.test_memo_lifecycle import clock
+    clock(monkeypatch,calendar.anchor('2026-02-17','08:00'))
     item=saved(op(a,'memo',str(uuid4()),'create',{'category_id':cat['id'],'title':'循环同一条','body_markdown':'','attachments':[],'reminders':reminders,'recurrence':rule},fid=fid))
-    assert item['reminders'][1]['recipient_ids']==[item['author_id']]
+    assert item['reminders'][0]['all_members']
     with connect(path) as db:
         db.execute('BEGIN IMMEDIATE');events.generate(db,now);events.generate(db,now);db.commit()
-        assert db.execute('SELECT count(*) FROM memo_reminder_events').fetchone()[0]==3
+        assert db.execute('SELECT count(*) FROM memo_reminder_events').fetchone()[0]==2
         assert db.execute('SELECT count(*) FROM memos').fetchone()[0]==1
         db.execute('BEGIN IMMEDIATE');events.generate(db,now+timedelta(days=1));db.commit()
-        assert db.execute('SELECT count(*) FROM memo_reminder_events').fetchone()[0]==6
+        assert db.execute('SELECT count(*) FROM memo_reminder_events').fetchone()[0]==4
         assert db.execute('SELECT count(*) FROM memos').fetchone()[0]==1
         db.execute("UPDATE memos SET completed=1,completed_at='2026-02-18T23:00:00+08:00' WHERE id=?",(item['id'],))
         db.execute('BEGIN IMMEDIATE');events.generate(db,now+timedelta(days=2));db.commit()

@@ -116,7 +116,7 @@ def test_true_http_provider_or_output_failure_does_not_publish_reply(world,monke
     assert response.status_code==200 and data['status']=='failed' and not data['drafts']
     assert not any(m['role']=='assistant' for m in data['messages']) and calls==[300]
 
-def test_named_shared_persistence_adoption_replay_and_isolation(world):
+def test_named_shared_persistence_adoption_replay_and_isolation(world,monkeypatch):
     path,fake,a,b,au,bu,fid,app=world;w=wish(a);url='/api/v2/plans/records/'+w['id']+'/ai'
     response,body=send(a,w);assert response.status_code==200,response.text
     data=response.json();assert data['status']=='ready' and data['messages'][0]['author_name']=='甲'
@@ -124,8 +124,12 @@ def test_named_shared_persistence_adoption_replay_and_isolation(world):
     assert b.get(url).json()['drafts']==data['drafts']
     draft=data['drafts'][0];task=next(i for i in draft['items'] if i['kind']=='task')
     adoption={'op_id':uid(),'draft_id':draft['id'],'item_ids':[task['id']],'base_version':1,'target_plan_id':None}
+    from server.plans import service as plans
+    created='2090-01-01T08:00:00+00:00';monkeypatch.setattr(plans,'now',lambda:created)
     result=b.post(url+'/adopt',json=adoption);assert result.status_code==200,result.text
     receipt=result.json();assert len(receipt['receipt']['adopted_item_ids'])==2
+    assert list(receipt['receipt']['task_created_at'].values())==[created]
+    monkeypatch.setattr(plans,'now',lambda:'2090-01-02T08:00:00+00:00')
     assert b.post(url+'/adopt',json=adoption).json()==receipt
     with connect(path) as db:
         assert db.execute('SELECT count(*) FROM plan_tasks').fetchone()[0]==1
@@ -135,6 +139,7 @@ def test_named_shared_persistence_adoption_replay_and_isolation(world):
     with TestClient(app2) as reopened:
         reopened.cookies.update(a.cookies);reopened.headers.update(a.headers)
         assert all(i['adopted'] for i in reopened.get(url).json()['drafts'][0]['items'])
+        assert reopened.get('/api/v2/plans/sync').json()['tasks'][0]['created_at']==created
     b.headers.update({'X-Scope':'private','X-Family-Id':'none','X-Relation-Epoch':'0'})
     assert b.get(url).status_code==404
 

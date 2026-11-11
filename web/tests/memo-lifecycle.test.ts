@@ -38,9 +38,9 @@ test.each([
  [{start_date:'2090-11-05',end_date:null,start_time:'09:00',end_time:null},'2090-11-06T00:00:00+08:00'],
  [{start_date:'2090-11-05',end_date:'2090-11-07',start_time:null,end_time:null},'2090-11-08T00:00:00+08:00'],
  [{start_date:'2090-11-05',end_date:'2090-11-07',start_time:'09:00',end_time:'00:00'},'2090-11-07T00:00:00+08:00'],
-])('离线到期边界遵守无结束/全天/跨日时间规则 %j',async(schedule,boundary)=>{
+])('旧时间区间过期仍保留未完成备忘 %j',async(schedule,boundary)=>{
  const{source}=await setup(),p=newMemoPartition(source);p.local=[{...record('date',true),schedule}]
- const end=Date.parse(boundary);expect(memoRecordViews(p,end-1)[0]!.archived).toBe(false);expect(memoRecordViews(p,end)[0]!.archived).toBe(true)
+ const end=Date.parse(boundary);expect(memoRecordViews(p,end-1)[0]!.archived).toBe(false);expect(memoRecordViews(p,end)[0]!.archived).toBe(false)
  applyMemoOperation(p,operation('date',1,'archive',{archived:false}),user.id);expect(memoRecordViews(p,end+86400000)[0]!.archived).toBe(false)
 })
 test('重复日程离线完成单次保未来缓存，归档可读正文/附件，恢复不被再次到期吞掉',async()=>{

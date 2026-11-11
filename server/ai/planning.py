@@ -211,6 +211,7 @@ def adopt(db,user,identity,body):
             db.execute("INSERT INTO plan_records(id,kind,scope,namespace,author_id,updated_by,title,body_markdown,wish_kind,source_wish_id,version,created_at,updated_at) VALUES(?,'plan',?,?,?,?,?,?,'',?,1,?,?)",(plan_id,parent['scope'],parent['namespace'],user,user,parent['title'],parent['body_markdown'],identity,stamp,stamp))
             target=plans.raw(db,'plan',plan_id)
         plan_id=target['id'];position=db.execute('SELECT COALESCE(max(position),-1)+1 FROM plan_stages WHERE plan_id=?',(plan_id,)).fetchone()[0]
+        task_created_at={}
         for item in sorted(fresh,key=lambda i:i['kind']!='stage'):
             eid=str(uuid4());plans.unique_id(db,eid)
             if item['kind']=='stage':
@@ -221,12 +222,13 @@ def adopt(db,user,identity,body):
                 stage_row=plans.require(db,user,'stage',stage['entity_id'])
                 if stage_row['plan_id']!=plan_id:plans.fail('ai_draft_stale')
                 plans.check_assignees(db,user,item['assignee_ids'])
+                task_created_at[eid]=plans.now()
                 db.execute('INSERT INTO plan_tasks(id,plan_id,stage_id,author_id,updated_by,title,body_markdown,assignee_ids_json,due_date,position,version) VALUES(?,?,?,?,?,?,?,?,?,?,1)',(eid,plan_id,stage['entity_id'],user,user,item['title'],item['body_markdown'],plans.canonical(item['assignee_ids']),item['due_date'],position));position+=1
             item.update(adopted=True,entity_id=eid)
         # Appending increments the plan version; existing stage/task rows are untouched.
         target=plans.bump(db,'plan',target,{},user)
         db.execute('UPDATE ai_drafts SET items_json=? WHERE id=?',(plans.canonical(items),str(body.draft_id)))
-        receipt={'plan_id':plan_id,'adopted_item_ids':[i['id'] for i in fresh],'record':plans.dto(db,'plan',target)}
+        receipt={'plan_id':plan_id,'adopted_item_ids':[i['id'] for i in fresh],'record':plans.dto(db,'plan',target),'task_created_at':task_created_at}
         db.execute('INSERT INTO ai_adoptions(user_id,op_id,record_id,request_hash,source_json,receipt_json) VALUES(?,?,?,?,?,?)',(user,str(body.op_id),identity,request_hash,plans.canonical(origin),plans.canonical(receipt)))
         db.commit();return {'source':origin,'receipt':receipt}
     except BaseException:db.rollback();raise

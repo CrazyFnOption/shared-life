@@ -4,13 +4,26 @@ import json
 import hashlib
 from uuid import uuid5,NAMESPACE_URL
 from server.accounting import families
-from .calendar import ZONE,anchor,local_time,dates
+from .calendar import ZONE,anchor,local_time,dates,reminder_time
 
 
 def signature(rule,recurrence,schedule=None):
     payload={'rule':rule,'recurrence':recurrence}
     if rule['mode']=='relative':payload['schedule']={key:schedule[key] for key in ('start_date','start_time')} if schedule else None
     return hashlib.sha256(json.dumps(payload,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+
+
+def rule_effective_at(db,record,rule):
+    """Only the latest continuous use of this rule can produce new reminders."""
+    wanted=signature(rule,record.get('recurrence'),record.get('schedule'))
+    effective=local_time(record['created_at']);previous=None
+    receipts=[json.loads(row['receipt_json'])['record'] for row in db.execute("SELECT receipt_json FROM memo_operations WHERE entity_type='memo' AND entity_id=?",(record['id'],))]
+    for saved in sorted(receipts,key=lambda item:item['version']):
+        saved_rule=next((item for item in saved.get('reminders',[]) if item['id']==rule['id']),None)
+        current=signature(saved_rule,saved.get('recurrence'),saved.get('schedule')) if saved_rule else None
+        if current==wanted and current!=previous:effective=local_time(saved['updated_at'])
+        previous=current
+    return effective
 
 
 def cancel_completed_events(db,memo_id,completed_at):
@@ -35,7 +48,7 @@ def generate(db,now,*,scope=None,namespace=None):
     state=db.execute('SELECT restore_id,automation_paused FROM app_state WHERE singleton=1').fetchone()
     if state['automation_paused']:return
     now=now.astimezone(ZONE);today=now.date();restore=state['restore_id']
-    sql="SELECT * FROM memos WHERE deleted=0 AND (archived=0 OR (kind='memo' AND completed=1 AND recurrence_json IS NOT NULL))"
+    sql="SELECT * FROM memos WHERE deleted=0 AND (archived=0 OR (completed=1 AND recurrence_json IS NOT NULL))"
     args=()
     if scope is not None:sql+=' AND scope=? AND namespace=?';args=(scope,namespace)
     for row in db.execute(sql,args).fetchall():
@@ -43,18 +56,22 @@ def generate(db,now,*,scope=None,namespace=None):
             if not db.execute('SELECT 1 FROM families WHERE id=? AND archived=0',(row['namespace'],)).fetchone():continue
             members={r['user_id']:r['relation_epoch'] for r in db.execute('SELECT user_id,relation_epoch FROM family_members WHERE family_id=? AND active=1',(row['namespace'],))}
         else:members={row['namespace']:0}
-        from .lifecycle import expire,state as lifecycle_state,save as save_lifecycle
-        row=expire(db,row,now)
+        from .lifecycle import state as lifecycle_state,save as save_lifecycle
         record=memo_dto(db,row);recurrence=record['recurrence'];rules=record['reminders']
         # Also settle due events from an older program before a fixed-cycle reopen.
         if row['completed'] and row['completed_at']:cancel_completed_events(db,row['id'],row['completed_at'])
-        if recurrence and row['kind']=='memo':
-            recent=dates(recurrence,date.fromisoformat(recurrence['start_date']),today)
-            cycle=recent[-1] if recent else None
+        if recurrence:
+            origin=date.fromisoformat(recurrence['start_date'])
+            initial=min((reminder_time(rule,record['schedule']) for rule in rules),default=anchor(origin))
+            shift=initial.date()-origin
+            recent=dates(recurrence,origin,today-shift)
+            elapsed=[day for day in recent if initial+timedelta(days=(day-origin).days)<=now]
+            cycle=elapsed[-1] if elapsed else None
             if cycle:
-                boundary=anchor(cycle)
+                boundary=initial+timedelta(days=(cycle-origin).days)
                 completed_at=local_time(row['completed_at']) if row['completed_at'] else None
-                if row['completed'] and completed_at and boundary>completed_at:
+                # Finishing before today's reminder still completes this cycle.
+                if row['completed'] and completed_at and boundary.date()>completed_at.date():
                     lifecycle=lifecycle_state(row);lifecycle.pop('archived_at',None);lifecycle.pop('reason',None);lifecycle.pop('suppressed',None)
                     save_lifecycle(db,row['id'],lifecycle)
                     db.execute('UPDATE memos SET completed=0,completed_at=NULL,archived=0,last_cycle=?,version=version+1,updated_at=? WHERE id=?',(cycle.isoformat(),now.isoformat(),row['id']))
@@ -63,6 +80,7 @@ def generate(db,now,*,scope=None,namespace=None):
                 elif row['last_cycle']!=cycle.isoformat():db.execute('UPDATE memos SET last_cycle=? WHERE id=?',(cycle.isoformat(),row['id']))
         if record['archived'] or record['completed']:continue
         for rule in rules:
+            effective=rule_effective_at(db,record,rule)
             if rule['mode']=='relative':
                 schedule=record['schedule'];base=anchor(schedule['start_date'],schedule['start_time']);offset=timedelta(minutes=rule['offset_minutes'])
                 initial=base-offset
@@ -79,7 +97,7 @@ def generate(db,now,*,scope=None,namespace=None):
                 if row['kind']=='schedule' and recurrence:
                     occurrence=(when.date()-timedelta(days=shift)).isoformat()
                     if lifecycle_state(row).get('occurrences',{}).get(occurrence,{}).get('archived_at'):continue
-                if when.date()!=today or when>now:continue
+                if when.date()!=today or when>now or when<effective:continue
                 recipients=set(members) if rule['all_members'] else set(rule['recipient_ids'])
                 for uid in sorted(recipients & members.keys()):
                     identity=str(uuid5(NAMESPACE_URL,f'shared-life:reminder:{restore}:{row["id"]}:{rule["id"]}:{when.isoformat()}:{uid}'))

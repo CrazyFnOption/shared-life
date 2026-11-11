@@ -11,16 +11,20 @@ from server.automation.backups import backup,restore,validate_database
 from server.memos import calendar,events
 from server.tests.test_multi_family import home,headers,create,join,management
 from server.tests.test_memos import op,saved,category
+from server.tests.test_memo_lifecycle import clock
 
 
-def relative_record(a,day):
+def relative_record(a,day,monkeypatch):
     rule={'id':str(uuid4()),'mode':'relative','at':None,'offset_minutes':0,'recipient_ids':[],'all_members':False}
     data={'kind':'schedule','category_id':None,'title':'私有日程正文不出站','body_markdown':'秘密正文','attachments':[],'schedule':{'start_date':day.isoformat(),'start_time':'00:00','end_date':None,'end_time':None},'reminders':[rule]}
-    return saved(op(a,'memo',str(uuid4()),'create',data)),data
+    # The rule must exist before its due clock; past reminders are not replayed.
+    with monkeypatch.context() as creation:
+        clock(creation,calendar.anchor(day)-timedelta(minutes=1))
+        return saved(op(a,'memo',str(uuid4()),'create',data)),data
 
 
-def test_i02_relative_move_cancels_prior_occurrence_but_title_and_end_edits_preserve(home):
-    path,app,(a,b,c)=home;today=datetime.now(calendar.ZONE).date();item,data=relative_record(a,today)
+def test_i02_relative_move_cancels_prior_occurrence_but_title_and_end_edits_preserve(home,monkeypatch):
+    path,app,(a,b,c)=home;today=datetime.now(calendar.ZONE).date();item,data=relative_record(a,today,monkeypatch)
     messages=a.get('/api/v2/memos/messages',headers=headers(a)).json()['messages'];old=messages[0]['id']
     edited={**data,'title':'仅改标题','schedule':{**data['schedule'],'end_date':(today+timedelta(days=1)).isoformat(),'end_time':'01:00'}}
     saved(op(a,'memo',item['id'],'update',edited,1))
@@ -40,7 +44,9 @@ def test_i03_completed_cycle_is_persistently_resolved_across_fixed_reopen(home,m
         def now(cls,tz=None):return calendar.anchor(yesterday,'23:00').astimezone(tz) if tz else calendar.anchor(yesterday,'23:00').replace(tzinfo=None)
     recurrence={'frequency':'daily','interval':1,'calendar':'solar','start_date':yesterday.isoformat(),'until':None,'lunar_month':None,'lunar_day':None,'lunar_leap':False}
     rule={'id':str(uuid4()),'mode':'absolute','at':calendar.anchor(yesterday).isoformat(),'offset_minutes':0,'recipient_ids':[],'all_members':False}
-    item=saved(op(a,'memo',str(uuid4()),'create',{'category_id':category(a)['id'],'title':'循环记录','reminders':[rule],'recurrence':recurrence}))
+    with monkeypatch.context() as creation:
+        clock(creation,calendar.anchor(yesterday)-timedelta(minutes=1))
+        item=saved(op(a,'memo',str(uuid4()),'create',{'category_id':category(a)['id'],'title':'循环记录','reminders':[rule],'recurrence':recurrence}))
     with connect(path) as db:
         db.execute('BEGIN IMMEDIATE');events.generate(db,calendar.anchor(yesterday,'12:00'));db.commit()
         old=db.execute('SELECT id FROM memo_reminder_events WHERE memo_id=?',(item['id'],)).fetchone()[0]
@@ -59,11 +65,13 @@ def test_i03_completed_cycle_is_persistently_resolved_across_fixed_reopen(home,m
         assert db.execute('SELECT completed FROM memos WHERE id=?',(item['id'],)).fetchone()[0]==0
 
 
-def test_i03_older_program_completed_state_settles_before_next_cycle_reopen(home):
+def test_i03_older_program_completed_state_settles_before_next_cycle_reopen(home,monkeypatch):
     path,app,(a,b,c)=home;today=datetime.now(calendar.ZONE).date();yesterday=today-timedelta(days=1)
     recurrence={'frequency':'daily','interval':1,'calendar':'solar','start_date':yesterday.isoformat(),'until':None,'lunar_month':None,'lunar_day':None,'lunar_leap':False}
     rule={'id':str(uuid4()),'mode':'absolute','at':calendar.anchor(yesterday).isoformat(),'offset_minutes':0,'recipient_ids':[],'all_members':False}
-    item=saved(op(a,'memo',str(uuid4()),'create',{'category_id':category(a)['id'],'title':'兼容完成事实','reminders':[rule],'recurrence':recurrence}))
+    with monkeypatch.context() as creation:
+        clock(creation,calendar.anchor(yesterday)-timedelta(minutes=1))
+        item=saved(op(a,'memo',str(uuid4()),'create',{'category_id':category(a)['id'],'title':'兼容完成事实','reminders':[rule],'recurrence':recurrence}))
     with connect(path) as db:
         db.execute('BEGIN IMMEDIATE');events.generate(db,calendar.anchor(yesterday,'12:00'));db.commit()
         db.execute('UPDATE memos SET completed=1,completed_at=? WHERE id=?',(calendar.anchor(yesterday,'23:00').isoformat(),item['id']))
@@ -73,8 +81,8 @@ def test_i03_older_program_completed_state_settles_before_next_cycle_reopen(home
         assert [r[0] for r in db.execute('SELECT status FROM memo_reminder_events WHERE memo_id=? ORDER BY occurrence',(item['id'],))]==['cancelled','ready']
 
 
-def test_calendar_versions_cover_empty_range_and_occurrences_source(home):
-    path,app,(a,b,c)=home;today=datetime.now(calendar.ZONE).date();item,data=relative_record(a,today)
+def test_calendar_versions_cover_empty_range_and_occurrences_source(home,monkeypatch):
+    path,app,(a,b,c)=home;today=datetime.now(calendar.ZONE).date();item,data=relative_record(a,today,monkeypatch)
     month=a.get('/api/v2/memos/calendar',headers=headers(a),params={'from_date':today.isoformat(),'to_date':today.isoformat()}).json()
     assert month['versions']=={item['id']:1} and month['occurrences'][0]['record_version']==1
     future=(today+timedelta(days=1)).isoformat()
@@ -114,8 +122,8 @@ def subscribe(path,user_id):
     with connect(path) as db:db.execute('INSERT INTO push_subscriptions(owner_id,endpoint,keys_json) VALUES(?,?,?)',(user_id,'https://fictional-push.invalid/subscription',json.dumps({'p256dh':'fictional','auth':'fictional'})))
 
 
-def test_memo_outbox_simulated_sender_privacy_deep_link_and_restore(home,tmp_path):
-    path,app,(a,b,c)=home;today=datetime.now(calendar.ZONE).date();item,data=relative_record(a,today)
+def test_memo_outbox_simulated_sender_privacy_deep_link_and_restore(home,tmp_path,monkeypatch):
+    path,app,(a,b,c)=home;today=datetime.now(calendar.ZONE).date();item,data=relative_record(a,today,monkeypatch)
     a.get('/api/v2/memos/messages',headers=headers(a))
     subscribe(path,item['author_id']);push=FakePush();worker=Worker(path,push=push)
     now=datetime.now(calendar.ZONE);worker._notifications(now);worker._notifications(now)
@@ -131,22 +139,25 @@ def test_memo_outbox_simulated_sender_privacy_deep_link_and_restore(home,tmp_pat
     with connect(restored) as db:validate_database(db)
 
 
-def test_memo_outbox_bounded_retry_and_change_before_send(home):
-    path,app,(a,b,c)=home;today=datetime.now(calendar.ZONE).date();item,data=relative_record(a,today)
+def test_memo_outbox_bounded_retry_and_change_before_send(home,monkeypatch):
+    path,app,(a,b,c)=home;today=datetime.now(calendar.ZONE).date();item,data=relative_record(a,today,monkeypatch)
     a.get('/api/v2/memos/messages',headers=headers(a));subscribe(path,item['author_id'])
     push=FakePush(503);worker=Worker(path,push=push);now=datetime.now(calendar.ZONE)
     for n in range(5):worker._notifications(now+timedelta(minutes=6*n))
     assert len(push.sent)==3
     with connect(path) as db:assert db.execute("SELECT status FROM notification_outbox WHERE dedup_key LIKE 'memo:%'").fetchone()[0]=='failed'
-    second,data2=relative_record(a,today);a.get('/api/v2/memos/messages',headers=headers(a))
+    second,data2=relative_record(a,today,monkeypatch);a.get('/api/v2/memos/messages',headers=headers(a))
     tomorrow=(today+timedelta(days=1)).isoformat();saved(op(a,'memo',second['id'],'update',{**data2,'schedule':{**data2['schedule'],'start_date':tomorrow}},1))
     fresh=FakePush();Worker(path,push=fresh)._notifications(now+timedelta(hours=1));assert not fresh.sent
 
 
-def test_memo_outbox_rechecks_revocation_after_simulated_external_send(home):
+def test_memo_outbox_rechecks_revocation_after_simulated_external_send(home,monkeypatch):
     path,app,(a,b,c)=home;fid=create(a,'家');join(a,b,fid);today=datetime.now(calendar.ZONE).date()
     data={'kind':'schedule','category_id':None,'title':'共同提醒','schedule':{'start_date':today.isoformat(),'start_time':'00:00','end_date':None,'end_time':None},'reminders':[{'id':str(uuid4()),'mode':'relative','at':None,'offset_minutes':0,'recipient_ids':[b.get('/api/auth/me').json()['user']['id']],'all_members':False}]}
-    item=saved(op(a,'memo',str(uuid4()),'create',data,fid=fid));b.get('/api/v2/memos/messages',headers=headers(b,fid));bid=b.get('/api/auth/me').json()['user']['id'];subscribe(path,bid)
+    with monkeypatch.context() as creation:
+        clock(creation,calendar.anchor(today)-timedelta(minutes=1))
+        item=saved(op(a,'memo',str(uuid4()),'create',data,fid=fid))
+    b.get('/api/v2/memos/messages',headers=headers(b,fid));bid=b.get('/api/auth/me').json()['user']['id'];subscribe(path,bid)
     def leave():
         response=b.post('/api/v2/families/'+fid+'/leave',headers=headers(b,fid),json=management(b,fid));assert response.status_code==200,response.text
     push=FakePush(hook=leave);Worker(path,push=push)._notifications(datetime.now(calendar.ZONE));assert len(push.sent)==1

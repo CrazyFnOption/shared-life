@@ -37,7 +37,7 @@ class Attachment(Model):
 
 
 class MemoData(Model):
-    category_id: UUID | None
+    category_id: UUID | None = None
     kind: Literal['memo','schedule'] = 'memo'
     schedule: 'Schedule | None' = None
     reminders: list['Reminder'] = Field(default_factory=list,max_length=20)

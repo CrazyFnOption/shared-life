@@ -14,7 +14,7 @@ export interface MemoDeletionRequest {id:string;memo_id:string;requester_id:stri
 export interface MemoMessage {id:string;kind:'reminder'|'memo_deletion_request'|'plan_deletion_request'|'expense_change_request'|'expense_category_change'|'family_invite';target_type:'memo'|'deletion_request'|'plan_deletion_request'|'expense_change_request'|'expense_category_change'|'family_invite';target_id:string;record_id:string;title:string;created_at:string;source:Source;ignored?:boolean}
 export interface MemoData {category_id:string|null;title:string;body_markdown:string;attachments:MemoFileManifest[];kind?:'memo'|'schedule';schedule?:MemoSchedule|null;reminders?:MemoReminder[];recurrence?:MemoRecurrence|null}
 export interface MemoOccurrenceState {start_date:string;archived_at:string|null;completed:boolean;suppressed?:boolean;schedule?:MemoSchedule}
-export interface MemoRecord extends MemoData {id:string;scope:'private'|'shared';family_id:string|null;author_id:string;updated_by:string;completed:boolean;version:number;created_at:string;updated_at:string;archived?:boolean;archived_at?:string|null;auto_archive_suppressed?:boolean;archived_occurrences?:MemoOccurrenceState[];deleted?:boolean}
+export interface MemoRecord extends MemoData {id:string;scope:'private'|'shared';family_id:string|null;author_id:string;updated_by:string;completed:boolean;completed_at?:string|null;version:number;created_at:string;updated_at:string;archived?:boolean;archived_at?:string|null;auto_archive_suppressed?:boolean;archived_occurrences?:MemoOccurrenceState[];deleted?:boolean}
 export interface MemoAttachment extends MemoFileManifest {memo_id:string;created_by:string;state:'pending'|'uploaded'|'deleted'}
 export interface MemoOperation {op_id:string;entity_type:'category'|'memo'|'focus'|'category_order'|'deletion_request';entity_id:string;kind:string;base_version:number;data:MemoData|{name:string}|{completed:boolean;occurrence_date?:string}|{archived:boolean;occurrence_date?:string}|{targets:FocusTarget[]}|{category_ids:string[]}|{target_category_id:string|null}|{memo_id:string;target_version:number;reason:string}|{accepted:boolean}|Record<string,never>}
 export type MemoEntity=MemoCategory|MemoRecord|MemoFocus|MemoCategoryOrder|MemoDeletionRequest
@@ -48,12 +48,12 @@ export function applyMemoOperation(p:MemoPartition,op:MemoOperation,userId:strin
   let data:Partial<MemoRecord>
   if(op.kind==='complete'||op.kind==='archive'){
    const input=op.data as {completed?:boolean;archived?:boolean;occurrence_date?:string},desired=op.kind==='complete'?!!input.completed:!!input.archived
-   if(before.kind==='schedule'&&(before.recurrence||input.occurrence_date&&(before.archived_occurrences??[]).some(e=>e.start_date===input.occurrence_date))){
+   if(before.kind==='schedule'&&input.occurrence_date&&(before.recurrence||(before.archived_occurrences??[]).some(e=>e.start_date===input.occurrence_date))){
     const day=input.occurrence_date??before.schedule!.start_date,entries=(before.archived_occurrences??[]).filter(e=>e.start_date!==day),prior=before.archived_occurrences?.find(e=>e.start_date===day)
     const schedule=prior?.schedule??{...before.schedule!,start_date:day,end_date:before.schedule!.end_date?new Date(Date.parse(day)+Date.parse(before.schedule!.end_date)-Date.parse(before.schedule!.start_date)).toISOString().slice(0,10):null}
     entries.push({start_date:day,archived_at:desired?prior?.archived_at??timestamp:null,completed:op.kind==='complete'?desired:desired?prior?.completed??false:false,suppressed:!desired,schedule})
     data={archived_occurrences:entries}
-   }else data={archived:desired,archived_at:desired?before.archived_at??timestamp:null,completed:op.kind==='complete'?desired:desired?before.completed:false,auto_archive_suppressed:!desired}
+   }else data={archived:desired,archived_at:desired?before.archived_at??timestamp:null,completed:op.kind==='complete'?desired:desired?before.completed:false,completed_at:op.kind==='complete'&&desired?timestamp:null,auto_archive_suppressed:!desired}
   }else if(op.kind==='delete'||op.kind==='restore')data={deleted:op.kind==='delete'}
   else{data=op.data as MemoData;if(JSON.stringify(data.schedule)!==JSON.stringify(before.schedule)||JSON.stringify(data.recurrence)!==JSON.stringify(before.recurrence))data={...data,auto_archive_suppressed:false,archived_occurrences:(before.archived_occurrences??[]).filter(e=>e.archived_at)}}
   next={...before,...data,updated_by:userId,version:before.version+1,updated_at:timestamp}

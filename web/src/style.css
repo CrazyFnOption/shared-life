@@ -150,9 +150,12 @@ footer { padding: 24px 8px 0; text-align: center; font-size: 12px; line-height: 
 .month-label { display: inline-flex; align-items: center; justify-content: center; gap: 6px; flex: none; min-height: 44px; max-width: 48%; padding: 0 2px; color: var(--sl-ink); white-space: nowrap; cursor: pointer; }
 .month-display { font-size: 14px; }
 .month-label svg { width: 14px; height: 14px; }
-.month-picker { max-width: 360px; }
+.modal-backdrop.month-picker-backdrop { align-items: center; padding: max(16px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(16px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left)); }
+.month-picker-backdrop .month-picker { width: min(100%,360px); max-height: calc(100dvh - 32px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); border-radius: 20px; }
 .month-picker-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .month-picker-fields label, .month-picker-fields input, .month-picker-fields select { min-width: 0; width: 100%; }
+.month-picker-fields input, .month-picker-fields select { appearance: none; -webkit-appearance: none; box-sizing: border-box; height: 48px; min-height: 48px; padding: 11px 12px; line-height: 24px; }
+.month-picker-fields select { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='m1 1 5 5 5-5' fill='none' stroke='%2363766F' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 12px center; background-size: 10px 7px; }
 .month-picker-actions { display: flex; justify-content: flex-end; gap: 12px; }
 .month-picker-actions > button { flex: 1; width: auto; white-space: nowrap; }
 .summary { padding: 24px 0 28px; }

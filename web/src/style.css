@@ -147,10 +147,14 @@ footer { padding: 24px 8px 0; text-align: center; font-size: 12px; line-height: 
 .bookline { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .bookline > div { flex: 1; min-width: 0; }
 .book-caption { font-size: 13px; color: var(--sl-muted); overflow-wrap: anywhere; }
-.month-label { position: relative; display: inline-flex; align-items: center; justify-content: center; flex: none; min-height: 44px; max-width: 48%; padding: 0 2px; color: var(--sl-ink); white-space: nowrap; cursor: pointer; }
+.month-label { display: inline-flex; align-items: center; justify-content: center; gap: 6px; flex: none; min-height: 44px; max-width: 48%; padding: 0 2px; color: var(--sl-ink); white-space: nowrap; cursor: pointer; }
 .month-display { font-size: 14px; }
-.bookline .month-label input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; opacity: 0; cursor: pointer; }
-.month-label:has(input:focus-visible) { outline: 2px solid var(--sl-focus); outline-offset: 3px; border-radius: 4px; }
+.month-label svg { width: 14px; height: 14px; }
+.month-picker { max-width: 360px; }
+.month-picker-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.month-picker-fields label, .month-picker-fields input, .month-picker-fields select { min-width: 0; width: 100%; }
+.month-picker-actions { display: flex; justify-content: flex-end; gap: 12px; }
+.month-picker-actions > button { flex: 1; width: auto; white-space: nowrap; }
 .summary { padding: 24px 0 28px; }
 .total { font-size: 40px; line-height: 1.15; font-weight: 650; letter-spacing: -.04em; margin: 8px 0 12px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .total > span { font-size: 25px; font-weight: 500; margin-right: 6px; vertical-align: 3px; }

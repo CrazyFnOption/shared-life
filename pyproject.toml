@@ -1,6 +1,6 @@
 [project]
 name = "shared-life"
-version = "2.0.13"
+version = "2.0.14"
 description = "Tongzai: local-first shared life, memos, plans and expenses"
 requires-python = ">=3.13,<3.14"
 dependencies = [

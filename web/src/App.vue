@@ -181,7 +181,7 @@ function notificationHasInputs(){return financialInputsBusy.value||hasUnsavedFin
 async function openMessage(item:MemoMessage,resolvedReport=false,notice=''){const id=userId.value,source=account.value?.source;if(!id||!source||inboxBusy.value||!sameSource(item.source,source))return;if(notificationHasInputs()){message.value='请先保存或取消当前输入，再打开这条消息。';return}inboxBusy.value=true;inboxError.value='';try{
  await sync();await store.verifySource(id,source);if(!sameSource(account.value?.source,source))return
  const latest=await memoApi.messages(id,source,true),live=latest.messages.find(m=>m.id===item.id)??(resolvedReport&&item.kind==='monthly_report'?item:undefined);if(!live)throw new Error('这条消息已处理或不再可访问。')
- if(live.kind==='monthly_report'||live.kind==='weekly_review'){navigate('/accounting');reviewOpen.value=false;reviewTarget.value={tab:live.kind==='monthly_report'?'reports':'weekly',reportId:live.kind==='monthly_report'?live.target_id:undefined,notice};await nextTick();reviewOpen.value=true;return}
+ if(live.kind==='monthly_report'||live.kind==='weekly_review'){navigate('/accounting');view.value='review';reviewTarget.value={tab:live.kind==='monthly_report'?'reports':'weekly',reportId:live.kind==='monthly_report'?live.target_id:undefined,notice};await nextTick();reviewLoaded.value=true;return}
  if(live.target_type==='family_invite'){openFamily('received');return}
  if(live.target_type==='expense_change_request'||live.target_type==='expense_category_change'){if(!openFinancialRequests())throw new Error('请先保存或取消当前输入，再查看这条消息。');await nextTick();if(live.target_type==='expense_change_request'){const index=boardRequests.value.findIndex(r=>r.id===live.target_id);if(index>=0)requestPage.value=Math.floor(index/20)+1;await nextTick();document.getElementById(`request-${live.target_id}`)?.scrollIntoView({block:'center'})}return}
  if(live.target_type==='plan_deletion_request'){const p=await store.planRead(id,source);if(![...p.local.records,...p.local.tasks].some(r=>r.id===live.record_id&&!r.deleted))throw new Error('原记录已不可访问。');navigate('/plans');await nextTick();if(!plansWorkspaceRef.value?.openTarget(live.record_id))throw new Error('请先保存或取消当前编辑，再查看这条消息。');return}
@@ -195,7 +195,7 @@ function resetFinancialNavigation(){
   financialNavigationPaused.value=preserve
   if(!preserve){
     detailId.value=undefined;history.value=undefined;requestBoard.value=false
-    reviewOpen.value=false;categoryPanel.value=undefined;previewId.value=undefined
+    reviewLoaded.value=false;categoryPanel.value=undefined;previewId.value=undefined
   }
   datePickerOpen.value=false;filtersOpen.value=false;closeAccountTools()
 }
@@ -268,7 +268,6 @@ function hashChanged(){
 }
 function returnFromConfig(){navigate('/settings')}
 function openFinancialRequests(){navigate('/accounting');if(resumeParkedFinancialInput())return false;requestBoard.value=true;requestMessage.value='';return true}
-function openFinancialReview(){if(resumeParkedFinancialInput())return;reviewTarget.value=undefined;reviewOpen.value=true}
 
 const filtersOpen=ref(false)
 const month = ref(shanghaiMonth(new Date().toISOString()))
@@ -286,7 +285,15 @@ const datePickerTime=ref(new Date())
 function toggleDates(){datePickerTime.value=new Date();datePickerOpen.value=!datePickerOpen.value}
 const dateToggle=ref<HTMLButtonElement>()
 function chooseDate(day:string){dateFilter.value=day;datePickerOpen.value=false;void nextTick(()=>dateToggle.value?.focus())}
-const view=ref<'list'|'stats'>('stats')
+const financeTabs=[{id:'stats',label:'统计'},{id:'list',label:'明细'},{id:'review',label:'复盘'},{id:'export',label:'导出'}] as const
+type FinanceView=typeof financeTabs[number]['id']
+const view=ref<FinanceView>('stats')
+function selectFinanceView(next:FinanceView){view.value=next;datePickerOpen.value=false;closeAccountTools();if(next==='review'||next==='export')reviewLoaded.value=true}
+function financeTabKeys(event:KeyboardEvent){
+ const index=financeTabs.findIndex(item=>item.id===view.value)
+ const next=event.key==='Home'?0:event.key==='End'?financeTabs.length-1:event.key==='ArrowRight'?(index+1)%financeTabs.length:event.key==='ArrowLeft'?(index+financeTabs.length-1)%financeTabs.length:-1
+ if(next<0)return;event.preventDefault();selectFinanceView(financeTabs[next]!.id);void nextTick(()=>document.getElementById(`finance-tab-${view.value}`)?.focus())
+}
 const recordFilter=ref<'active'|'voided'>('active')
 const ratingFilter=ref<RatingFilter>('')
 const accountTools=ref<HTMLDetailsElement>()
@@ -325,8 +332,9 @@ async function categoriesChanged(){await refresh();signal()}
 const reviewPanelRef=ref<{hasUnsavedChanges:boolean;isBusy:boolean}>()
 const familyPanelRef=ref<{isBusy:boolean;hasUnsavedChanges:boolean}>()
 const familyOpenSequence=ref(0)
-const reviewOpen=ref(false)
+const reviewLoaded=ref(false)
 const reviewTarget=ref<{tab:'weekly'|'reports';reportId?:string;notice?:string}>()
+watch([route,view,reviewLoaded],()=>{if(route.value==='/accounting'&&(view.value==='review'||view.value==='export'))reviewLoaded.value=true})
 const familyOpen=computed(()=>route.value==='/settings/family')
 const familyInitialTab=ref<'received'|'sent'>('received')
 const receivedInvites=ref<FamilyInvite[]>([])
@@ -343,7 +351,7 @@ watch([userId,locked],()=>{
     moduleSyncIssues.value=[];planPartition.value=undefined;planDraftDirty.value={};planDrafts.value={};planResult.value=undefined;memoPartition.value=undefined;memoDrafts.value={};memoResult.value=undefined
     sessionGeneration++;syncSource?.controller.abort();generation++;form.value=undefined;detailId.value=undefined;history.value=undefined
     refundForm.value=undefined;requestForm.value=undefined;previewId.value=undefined
-    reviewOpen.value=false;requestBoard.value=false;categoryPanel.value=undefined
+    reviewLoaded.value=false;requestBoard.value=false;categoryPanel.value=undefined
     imageUrlRevision++;imageUrlCache.clear();imageUrls.value={}
   }
 },{flush:'sync'})
@@ -507,7 +515,7 @@ watch([account,locked],()=>{
   const urls=imageUrlCache.current()
   imageUrls.value=urls
   imageUrlsReady=pending.then(next=>{if(next && revision===imageUrlRevision)imageUrls.value=next},()=>{if(revision===imageUrlRevision)message.value='本机图片暂时无法读取，请联网后点击图片重试'})
-  if(locked.value || !account.value){reviewOpen.value=false;requestBoard.value=false;categoryPanel.value=undefined;clearSelection();closeAccountTools()}
+  if(locked.value || !account.value){reviewLoaded.value=false;requestBoard.value=false;categoryPanel.value=undefined;clearSelection();closeAccountTools()}
   if(locked.value||previewId.value&&!urls[previewId.value])previewId.value=undefined
   if(locked.value || detailId.value&&!account.value?.local.some(e=>e.id===detailId.value)){detailId.value=undefined;history.value=undefined;refundForm.value=undefined}
   if(history.value && detail.value && history.value.at(-1)?.version!==detail.value.version)history.value=undefined
@@ -520,7 +528,7 @@ async function switchBook(scope:Scope,familyId:string|null=null){
   generation++;form.value=undefined;refundForm.value=undefined;requestForm.value=undefined;categoryPanel.value=undefined
   newCategory.value='';detailId.value=undefined;history.value=undefined;previewId.value=undefined;historyDependencies=[]
   imageUrlRevision++;imageUrlCache.clear();imageUrls.value={}
-  reviewOpen.value=false;requestBoard.value=false;initialBookPending=false;tab.value=scope;currentFamilyId.value=familyId
+  reviewLoaded.value=false;requestBoard.value=false;initialBookPending=false;tab.value=scope;currentFamilyId.value=familyId
   recordFilter.value='active';ratingFilter.value='';categoryFilter.value='';keyword.value='';bookPicker.value=false
   account.value=undefined;await refresh()
   if(notificationChooseScope.value&&pendingNotification)void processNotification()
@@ -587,7 +595,7 @@ function signal() { channel?.postMessage('changed') }
 let historyDependencies:{family_id:string;relation_epoch:number}[]=[]
 function clearSensitiveView(){
  moduleSyncIssues.value=[];planPartition.value=undefined;planResult.value=undefined;planError.value='';planDraftDirty.value={};planDrafts.value={};memoPartition.value=undefined;memoResult.value=undefined;memoError.value='';memoDrafts.value={};generation++;requestBusy.value=false;maintenanceBusy.value=false;categoryPanel.value=undefined;clearSelection();categoryDecisions.value={};categoryRepairTargets.value={}
- detailId.value=undefined;history.value=undefined;historyDependencies=[];refundForm.value=undefined;requestForm.value=undefined;requestBoard.value=false;reviewOpen.value=false;form.value=undefined;previewId.value=undefined;decisions.value={};requestMessage.value=''
+ detailId.value=undefined;history.value=undefined;historyDependencies=[];refundForm.value=undefined;requestForm.value=undefined;requestBoard.value=false;reviewLoaded.value=false;form.value=undefined;previewId.value=undefined;decisions.value={};requestMessage.value=''
  imageUrlRevision++;imageUrlCache.clear();imageUrls.value={}
 }
 async function refresh(confirmedContext?:AccountContext):Promise<void>{
@@ -677,7 +685,7 @@ async function login(): Promise<void> {
     if (previous && activePendingCount(previous)>0 && result.user.id !== previous.user.id) throw new Error('有待同步记录，只能恢复原账号')
     await store.activate(result.user,username.value.trim())
     sessionGeneration++;generation++
-    detailId.value=undefined;history.value=undefined;refundForm.value=undefined;requestForm.value=undefined;requestBoard.value=false;reviewOpen.value=false;decisions.value={};requestMessage.value=''
+    detailId.value=undefined;history.value=undefined;refundForm.value=undefined;requestForm.value=undefined;requestBoard.value=false;reviewLoaded.value=false;decisions.value={};requestMessage.value=''
     userId.value=result.user.id
     locked.value=false
     password.value=''
@@ -856,7 +864,7 @@ async function logout() {
       await store.deactivate(id)
     })
     sessionGeneration++;generation++
-    detailId.value=undefined;history.value=undefined;refundForm.value=undefined;requestForm.value=undefined;requestBoard.value=false;reviewOpen.value=false;decisions.value={};requestMessage.value=''
+    detailId.value=undefined;history.value=undefined;refundForm.value=undefined;requestForm.value=undefined;requestBoard.value=false;reviewLoaded.value=false;decisions.value={};requestMessage.value=''
     moduleSyncIssues.value=[];planPartition.value=undefined;planDraftDirty.value={};planDrafts.value={};planResult.value=undefined;memoPartition.value=undefined;memoDrafts.value={};memoResult.value=undefined
     pendingNotification=undefined;notificationWaiting.value=false
     userId.value=undefined
@@ -999,7 +1007,7 @@ function foreground() { if (document.visibilityState==='visible') { void refresh
 function online() { networkOnline.value=true;void sync(); void checkFamilyAndInvites() }
 function offline(){networkOnline.value=false}
 function remoteChange() { void refresh() }
-const shellBlocked=computed(()=>syncOpen.value||bookPicker.value||inboxOpen.value||monthPickerOpen.value||route.value==='/accounting'&&!financialNavigationPaused.value&&!!(form.value||detail.value||refundForm.value||requestForm.value||requestBoard.value||reviewOpen.value||categoryPanel.value||previewId.value))
+const shellBlocked=computed(()=>syncOpen.value||bookPicker.value||inboxOpen.value||monthPickerOpen.value||route.value==='/accounting'&&!financialNavigationPaused.value&&!!(form.value||detail.value||refundForm.value||requestForm.value||requestBoard.value||categoryPanel.value||previewId.value))
 function visibleDialog(){return [...document.querySelectorAll<HTMLElement>('[role="dialog"]')].filter(e=>e.getClientRects().length>0).at(-1)}
 let activeDialog:HTMLElement|undefined
 const dialogReturnFocus=new WeakMap<HTMLElement,HTMLElement>()
@@ -1035,8 +1043,8 @@ function shellModalKeys(event:KeyboardEvent){
     else if(!event.shiftKey&&(document.activeElement===last||!panel.contains(document.activeElement))){event.preventDefault();first?.focus()}
   }
 }
-watch([form,detailId,refundForm,requestForm,requestBoard,reviewOpen,categoryPanel,previewId,bookPicker,inboxOpen,syncOpen,monthPickerOpen,route,financialNavigationPaused],()=>{void nextTick(focusDialog)})
-watch([form,refundForm,requestForm,reviewOpen,categoryPanel,requestBoard],()=>{if(!form.value&&!refundForm.value&&!requestForm.value&&!reviewOpen.value&&!categoryPanel.value&&!requestBoard.value)financialNavigationPaused.value=false},{flush:'sync'})
+watch([form,detailId,refundForm,requestForm,requestBoard,categoryPanel,previewId,bookPicker,inboxOpen,syncOpen,monthPickerOpen,route,financialNavigationPaused],()=>{void nextTick(focusDialog)})
+watch([form,refundForm,requestForm,hasUnsavedFinancialInputs,categoryPanel,requestBoard],()=>{if(!form.value&&!refundForm.value&&!requestForm.value&&!hasUnsavedFinancialInputs.value&&!categoryPanel.value&&!requestBoard.value)financialNavigationPaused.value=false},{flush:'sync'})
 function cacheError() { localWarning.value='离线页面准备失败；本机账本仍保留，请联网重开以重试' }
 // Drafts stay in their owning components. An update waits rather than serializing input or files.
 const appUpdateBlocked=computed(()=>!ready.value||appInputActive.value||loggingIn.value||loggingOut.value||contextChanging.value||syncing.value||!!apiWrites.value||financialInputsBusy.value||hasUnsavedFinancialInputs.value||!!form.value||!!refundForm.value||!!requestForm.value||Object.keys(memoDrafts.value).length>0||Object.keys(planDrafts.value).length>0||!!memosWorkspaceRef.value?.updateBlocked||!!plansWorkspaceRef.value?.updateBlocked||!!familyPanelRef.value?.hasUnsavedChanges||route.value==='/settings/account'||!!password.value||!!displayName.value||!account.value&&!!username.value||!!account.value&&!account.value.source)
@@ -1121,17 +1129,18 @@ onUnmounted(() => { window.removeEventListener('keydown',shellModalKeys);window.
       <DeviceNotifications v-if="route==='/settings/notifications'" :key="userId" :account="account" embedded @close="returnFromConfig" @restore-changed="sync" @unauthorized="locked=true"/>
       <section v-show="route==='/accounting'" class="financial-workspace" aria-label="共同记账工作区">
       <div v-if="financialNavigationPaused" class="draft-resume" role="status"><div><strong>有未完成的记账输入</strong><small>仍保留原范围与记录，尚未保存</small></div><button class="text-button" @click="resumeFinancialNavigation">继续编辑</button></div>
-      <div class="accounting-heading"><h1 tabindex="-1">共同记账</h1><details ref="accountTools" class="account-tools" @keydown="financialMenuKeys"><summary>更多<Icon name="chevron"/></summary><div class="account-tools-menu"><button @click="closeAccountTools();openCategoryManager()">分类管理</button><button @click="closeAccountTools();openFinancialRequests()">更正待办<span v-if="awaitingApproval" class="tool-pending">{{ awaitingApproval }} 项待我审批</span></button><button @click="closeAccountTools();openFinancialReview()">财务复盘与导出</button><button @click="closeAccountTools();sync()" :disabled="syncing || !supported">{{ syncing?'正在同步…':'立即同步' }}</button></div></details></div>
+      <div class="accounting-heading"><h1 tabindex="-1">共同记账</h1><details ref="accountTools" class="account-tools" @keydown="financialMenuKeys"><summary>更多<Icon name="chevron"/></summary><div class="account-tools-menu"><button @click="closeAccountTools();openCategoryManager()">分类管理</button><button @click="closeAccountTools();openFinancialRequests()">更正待办<span v-if="awaitingApproval" class="tool-pending">{{ awaitingApproval }} 项待我审批</span></button></div></details></div>
       <section v-if="frozenPending" class="notice frozen-notice" role="status"><strong>{{ frozenPending }} 项旧共同待办已冻结</strong><p>不会转入新家庭或私人账，也不会自动同步。旧共同账内容已不可查看；仅本机副本保留供你决定放弃。</p><button class="subtle" @click="discardFrozen">放弃冻结待办</button></section>
-      <section class="bookline"><div><p class="book-caption">{{ tab==='shared'?'共同账 · 当前成员可见':'私人账 · 仅本人可见' }}</p></div><button class="month-label" aria-haspopup="dialog" :aria-expanded="monthPickerOpen" :aria-label="`统计月份：${Number(month.slice(0,4))}年${Number(month.slice(5,7))}月，选择月份`" @click="openMonthPicker"><span class="month-display">{{ Number(month.slice(0,4)) }}年{{ Number(month.slice(5,7)) }}月</span><Icon name="chevron"/></button></section>
-      <section class="summary"><p class="muted">本月{{ tab==='shared'?'共同':'私人' }}净支出</p><p class="total" :class="{'total-long':money(total).length>11}"><span>¥</span>{{ money(total) }}</p><p class="confirmed"><Icon name="check"/>服务端已确认 · {{ official.length }} 笔</p><p v-if="scopePending" class="summary-note">待同步内容另列，不计入以上正式统计。</p></section>
-      <section v-if="failures.length || imageFailures.length || categoryFailures.length" class="issues card" aria-label="同步问题"><h2>需要核对的内容 · {{ issueCount }} 项</h2>
+      <section class="bookline"><div><p class="book-caption">{{ tab==='shared'?'共同账 · 当前成员可见':'私人账 · 仅本人可见' }}</p></div><button v-show="view==='stats'||view==='list'" class="month-label" aria-haspopup="dialog" :aria-expanded="monthPickerOpen" :aria-label="`统计月份：${Number(month.slice(0,4))}年${Number(month.slice(5,7))}月，选择月份`" @click="openMonthPicker"><span class="month-display">{{ Number(month.slice(0,4)) }}年{{ Number(month.slice(5,7)) }}月</span><Icon name="chevron"/></button></section>
+      <nav class="tabs finance-tabs" role="tablist" aria-label="账本视图" @keydown="financeTabKeys"><button v-for="item in financeTabs" :key="item.id" :id="`finance-tab-${item.id}`" role="tab" :aria-selected="view===item.id" :aria-controls="`finance-pane-${item.id}`" :tabindex="view===item.id?0:-1" :class="{active:view===item.id}" @click="selectFinanceView(item.id)">{{ item.label }}</button></nav>
+      <section v-show="view==='stats'||view==='list'" class="summary"><p class="muted">本月{{ tab==='shared'?'共同':'私人' }}净支出</p><p class="total" :class="{'total-long':money(total).length>11}"><span>¥</span>{{ money(total) }}</p><p class="confirmed"><Icon name="check"/>服务端已确认 · {{ official.length }} 笔</p><p v-if="scopePending" class="summary-note">待同步内容另列，不计入以上正式统计。</p></section>
+      <section v-if="failures.length || imageFailures.length || categoryFailures.length" v-show="view==='stats'||view==='list'" class="issues card" aria-label="同步问题"><h2>需要核对的内容 · {{ issueCount }} 项</h2>
         <article v-for="item in visibleFailures" :key="item.operation.operation_id" class="issue"><p class="field-error">{{ item.error }}</p><template v-if="item.error_code==='category_deleted' && (item.operation.kind==='create'||item.operation.kind==='update') && !item.restore_review"><p>{{ account.local.find(e=>e.id===item.operation.expense_id)?.purpose }} · ¥{{ money(account.local.find(e=>e.id===item.operation.expense_id)?.amount_cents??0) }}</p><p class="form-note">草稿、后续退款／评价等操作和图片仍保留。仅替换待办链中相同的已删分类，其他字段不变。</p><label>修正为当前分类<select :value="categoryRepairTargets[item.operation.operation_id]??''" @change="categoryRepairTargets[item.operation.operation_id]=($event.target as HTMLSelectElement).value" :disabled="categoryRecoveryBusy"><option value="">未分类</option><option v-for="name in repairCategories(item)" :key="name">{{ name }}</option></select></label><div class="action-row"><button class="primary" :disabled="categoryRecoveryBusy" @click="repairPendingCategory(item,'change')">修正分类并重试</button><button v-if="repairCategories(item).includes(pendingCategoryName(item))" class="subtle" :disabled="categoryRecoveryBusy" @click="repairPendingCategory(item,'retry')">按原分类重试</button><button v-else class="subtle" :disabled="categoryRecoveryBusy" @click="repairPendingCategory(item,'restore')">重新新增同名分类并重试</button><button class="subtle" :disabled="categoryRecoveryBusy" @click="resolve(item.operation.expense_id,false)">放弃此笔本地变更</button></div></template><template v-else-if="item.conflict"><div class="comparison"><div><span class="muted">服务端当前版本 {{ item.conflict.version }}</span><strong>¥{{ money(item.conflict.amount_cents) }}</strong><p>{{ item.conflict.purpose }}</p><ExpenseFacts :expense="item.conflict"/></div><div><span class="muted">本人保留草稿</span><strong>¥{{ money(account.local.find(e=>e.id===item.operation.expense_id)?.amount_cents??0) }}</strong><p>{{ account.local.find(e=>e.id===item.operation.expense_id)?.purpose }}</p><ExpenseFacts v-if="account.local.find(e=>e.id===item.operation.expense_id)" :expense="account.local.find(e=>e.id===item.operation.expense_id)!"/></div></div><div class="action-row"><button class="subtle" @click="resolve(item.operation.expense_id,false)">采用服务端版本</button><button class="primary" @click="resolve(item.operation.expense_id,true)">核对后提交本地内容</button></div></template><template v-else><p v-if="item.restore_review" class="form-note">恢复后的服务器中没有这笔记录。父不存在的新建可核对后重新创建，其余动作需保留草稿另行核对。</p><p>{{ account.local.find(e=>e.id===item.operation.expense_id)?.purpose }} · ¥{{ money(account.local.find(e=>e.id===item.operation.expense_id)?.amount_cents??0) }}</p><div class="action-row"><button v-if="!item.error_code && !item.restore_review && item.operation.kind==='create'" class="primary" :disabled="categoryRecoveryBusy" @click="repairPendingCategory(item,'legacy')">按原内容重试一次</button><button v-if="item.restore_review && item.operation.kind==='create'" class="primary" @click="resolve(item.operation.expense_id,true)">核对后重新创建</button><button class="subtle" @click="resolve(item.operation.expense_id,false)">放弃此笔本地变更</button></div></template></article>
         <article v-for="image in visibleImageFailures" :key="image.id" class="issue"><p>{{ account.local.find(e=>e.id===image.expense_id)?.purpose||'恢复前附件' }} · 图片{{ image.pending==='delete'?'移除':'上传' }}失败</p><p class="field-error">{{ image.error }}</p><div class="action-row"><button v-if="image.blob" class="subtle" @click="previewId=image.id">查看本机图片</button><button class="subtle" @click="imageAction(image.id)">重试图片</button><button class="subtle" @click="imageAction(image.id,true)">放弃附件变更</button></div></article>
         <article v-for="category in visibleCategoryFailures" :key="category.name" class="issue"><p>{{ category.name }} · {{ category.error }}</p><div class="action-row"><button v-if="category.error?.includes('已删除')" class="subtle" @click="restoreCategory(category)">重新新增同名分类</button><button v-else class="subtle" @click="categoryAction(category)">重试分类</button><button class="subtle" @click="categoryAction(category,true)">放弃分类同步</button></div></article>
         <div v-if="issueCount>issuePageSize" class="pagination" aria-label="同步问题分页"><button class="subtle" @click="issuePage--" :disabled="issuePage===1">上一组问题</button><span>第 {{ issuePage }} / {{ issuePageCount }} 组</span><button class="subtle" @click="issuePage++" :disabled="issuePage===issuePageCount">下一组问题</button></div>
       </section>
-      <section class="ledger"><nav class="tabs" role="tablist" aria-label="账本视图"><button role="tab" :aria-selected="view==='stats'" :class="{active:view==='stats'}" @click="view='stats'">统计</button><button role="tab" :aria-selected="view==='list'" :class="{active:view==='list'}" @click="view='list'">明细</button><span>人民币 · CNY</span></nav>
+      <section class="ledger" :id="`finance-pane-${view}`" role="tabpanel" :aria-labelledby="`finance-tab-${view}`">
         <template v-if="view==='list'">
           <div class="list-heading"><label class="search-label"><Icon name="search"/><input v-model="keyword" type="search" placeholder="搜索用途" aria-label="查找用途"></label><button class="subtle" aria-controls="expense-record-filters" :aria-expanded="filtersOpen" @click="filtersOpen=!filtersOpen;datePickerOpen=false">筛选<span v-if="categoryFilter || ratingFilter || dateFilter" class="filter-dot" aria-label="已设置筛选"></span><Icon name="chevron"/></button></div><div class="record-list-tools"><button class="text-button" @click="selecting?clearSelection():(selecting=true)" :disabled="recordFilter==='voided'">{{ selecting?'取消选择':'批量改分类' }}</button><button class="text-button voided-records-toggle" :aria-pressed="recordFilter==='voided'" @click="recordFilter=recordFilter==='voided'?'active':'voided'">{{ recordFilter==='voided'?'返回正常支出':'查看我作废的支出' }}</button><button v-if="keyword || categoryFilter || ratingFilter || dateFilter" class="text-button" @click="keyword='';categoryFilter='';ratingFilter='';dateFilter='';datePickerOpen=false">清空筛选</button></div>
           <div v-show="filtersOpen" id="expense-record-filters" class="record-filters">
@@ -1147,15 +1156,15 @@ onUnmounted(() => { window.removeEventListener('keydown',shellModalKeys);window.
           <ul v-else class="records"><li v-for="(record,index) in pageRecords" :key="record.id"><div v-if="index===0 || dayLabel(record.occurred_at)!==dayLabel(pageRecords[index-1]!.occurred_at)" class="day-heading">{{ dayLabel(record.occurred_at) }}</div><div class="record-main"><label v-if="selecting" class="record-selector"><input type="checkbox" :checked="selectedIds.includes(record.id)" :disabled="!!record.voided || pendingIds.has(record.id)" @change="selectRecord(record.id,($event.target as HTMLInputElement).checked)" :aria-label="`选择${record.purpose}`"></label><span class="category-icon" :data-category="record.category"><Icon :name="record.category"/></span><div class="record-body"><h3><button class="record-detail-link" @click="openDetail(record)" :aria-label="`查看${record.purpose}详情`">{{ record.purpose }}</button></h3><span v-if="record.voided" class="record-status">已作废</span><span v-else-if="record.refunds?.some(r=>!r.voided)" class="record-status">已退款 · 净支出</span><span class="record-status">{{ reviewText(record.rating,record.rating_reason) }}</span><p><time :datetime="record.occurred_at" aria-label="上海消费时间">{{ shanghaiClock(record.occurred_at) }}</time> · {{ record.category || '未分类' }} · {{ payer(record.owner_id) }}<span v-if="record.location"> · {{ record.location }}</span></p><span v-if="pendingIds.has(record.id) || failure(record.id)" class="record-status pending">{{ failure(record.id)?'需要处理 · 本机草稿仍在':'已保存到手机，待同步' }}</span><span v-if="imageState(record.id)" class="record-status pending">{{ imageState(record.id) }}</span></div><div class="record-right"><strong>¥{{ money(netAmount(record)) }}</strong><button v-if="record.owner_id===userId && !record.voided" class="text-button" @click="openForm(record.scope,record)" :disabled="!!failure(record.id)" :aria-label="`修改${record.purpose}`">修改</button></div></div><div v-if="imagesFor(record.id).length" class="record-images"><button v-for="(image,n) in imagesFor(record.id)" :key="image.id" @click="showImage(image)" :aria-label="`查看图片${n+1}`" :disabled="loadingImage===image.id"><img v-if="imageUrls[image.id]" :src="imageUrls[image.id]" alt="图片凭证缩略图"><template v-else><Icon name="photo"/><span>{{ loadingImage===image.id?'读取中':'查看图片' }}</span></template></button></div></li></ul>
           <div class="pagination"><button class="subtle" @click="changePage(-1)" :disabled="page===1">上一页</button><span>第 {{ page }} / {{ pageCount }} 页</span><button class="subtle" @click="changePage(1)" :disabled="page===pageCount">下一页</button></div>
         </template>
-        <section v-else class="statistics"><h2>钱花在了哪里<small>按分类</small></h2><div v-for="item in categoryStats" :key="item.name" class="category-stat"><div><span>{{ item.name }}</span><span>¥{{ money(item.total) }} · {{ total?Math.round(item.total/total*100):0 }}%</span></div><div class="bar"><i :style="{width:`${total?item.total/total*100:0}%`}"></i></div></div><p v-if="!categoryStats.length" class="empty">本月还没有已同步的支出</p><h2>{{ tab==='shared'?'谁支付了这些支出':'我的支付' }}<small>当前账本 · 本月</small></h2><div class="payer-grid"><div v-for="user in byPayer.filter(u=>tab==='shared'||u.id===userId)" :key="user.id"><span>{{ user.display_name }}支付</span><strong>¥{{ money(user.total) }}</strong></div></div></section>
+        <section v-else-if="view==='stats'" class="statistics"><h2>钱花在了哪里<small>按分类</small></h2><div v-for="item in categoryStats" :key="item.name" class="category-stat"><div><span>{{ item.name }}</span><span>¥{{ money(item.total) }} · {{ total?Math.round(item.total/total*100):0 }}%</span></div><div class="bar"><i :style="{width:`${total?item.total/total*100:0}%`}"></i></div></div><p v-if="!categoryStats.length" class="empty">本月还没有已同步的支出</p><h2>{{ tab==='shared'?'谁支付了这些支出':'我的支付' }}<small>当前账本 · 本月</small></h2><div class="payer-grid"><div v-for="user in byPayer.filter(u=>tab==='shared'||u.id===userId)" :key="user.id"><span>{{ user.display_name }}支付</span><strong>¥{{ money(user.total) }}</strong></div></div></section>
+        <ReviewPanel :store="store" ref="reviewPanelRef" v-if="reviewLoaded && account && !locked" v-show="view==='review'||view==='export'" :account="account" :scope="tab" :pane="view==='export'?'export':'review'" :active="route==='/accounting'&&view==='review'" :target="reviewTarget" @restore-changed="sync" @unauthorized="locked=true" @changed="reviewChanged"/>
       </section>
-      <div v-show="view!=='list' || !datePickerOpen" class="entry-dock"><button class="primary" @click="openForm(tab)" :disabled="!supported"><Icon name="plus"/>{{ tab==='shared'?'记共同支出':'记私人支出' }}</button></div>
+      <div v-show="view==='stats' || view==='list' && !datePickerOpen" class="entry-dock"><button class="primary" @click="openForm(tab)" :disabled="!supported"><Icon name="plus"/>{{ tab==='shared'?'记共同支出':'记私人支出' }}</button></div>
       </section>
     </div>
     <div v-if="monthPickerOpen && account && !locked" class="modal-backdrop month-picker-backdrop" @click.self="monthPickerOpen=false"><section class="form-card month-picker" role="dialog" aria-modal="true" aria-labelledby="month-picker-title"><div class="form-title"><h2 id="month-picker-title">选择统计月份</h2><button class="icon-button" aria-label="取消月份选择" @click="monthPickerOpen=false"><Icon name="close"/></button></div><form class="stack" @submit.prevent="applyMonth"><div class="month-picker-fields"><label>年份<input v-model="monthYear" type="number" min="1" max="9999" step="1" required inputmode="numeric" aria-label="年份"></label><label>月份<select v-model="monthNumber" aria-label="月份"><option v-for="n in 12" :key="n" :value="String(n).padStart(2,'0')">{{ n }}月</option></select></label></div><div class="month-picker-actions"><button type="button" class="subtle" @click="monthPickerOpen=false">取消</button><button type="submit" class="primary">确认月份</button></div></form></section></div>
     <div v-show="route==='/accounting' && !financialNavigationPaused">
     <CategoryPanel ref="categoryPanelRef" v-if="categoryPanel && account && !locked" :account="account" :store="store" :scope="categoryPanel.scope" :mode="categoryPanel.mode" :selected-ids="categoryPanel.ids" @close="categoryPanel=undefined" @changed="categoriesChanged" @refresh="sync" @unauthorized="locked=true" @submitted="clearSelection"/>
-    <ReviewPanel :store="store" ref="reviewPanelRef" v-if="reviewOpen && account && !locked" :account="account" :scope="tab" :initial-tab="reviewTarget?.tab" :initial-report-id="reviewTarget?.reportId" :initial-notice="reviewTarget?.notice" @close="reviewOpen=false" @restore-changed="sync" @unauthorized="locked=true" @changed="reviewChanged"/>
     </div>
     <footer v-if="localWarning" role="status">{{ localWarning }}</footer>
     <div v-if="syncOpen && account && !locked" class="modal-backdrop sync-modal" @click.self="closeSyncStatus"><section class="form-card sync-status-card" role="dialog" aria-modal="true" aria-labelledby="sync-status-title"><div class="form-title"><h2 id="sync-status-title">同步状态</h2><button class="icon-button" @click="closeSyncStatus" aria-label="关闭同步状态"><Icon name="close"/></button></div><p class="sync-status-heading" role="status">{{ syncStatus }}</p><p v-if="syncProblem" class="field-error">{{ syncProblem }}</p><p class="form-note">{{ syncSummary.lastSync?`最近同步：${displayTime(syncSummary.lastSync)}（上海时间）`:'尚未完成首次同步' }}</p><p class="form-note">以下统计覆盖此账号的私人及所有家庭范围，包含记录、分类与附件；尚未保存的编辑不在其中。</p><dl class="sync-counts"><div><dt>待同步</dt><dd>{{ syncSummary.active }} 项</dd></div><div><dt>共同记账</dt><dd>{{ syncSummary.financial }} 项</dd></div><div><dt>生活备忘</dt><dd>{{ syncSummary.memo }} 项</dd></div><div><dt>愿望与计划</dt><dd>{{ syncSummary.plan }} 项</dd></div></dl><p v-if="syncSummary.active" class="form-note">待同步内容仍保存在本机，尚未全部上传。联网后会继续同步；需要核对的项目请在对应模块处理。</p><p v-if="syncSummary.frozen" class="notice">{{ syncSummary.frozen }} 项旧内容已冻结，不会自动上传或转入其他范围。请在共同记账中查看冻结待办说明。</p><ul v-if="syncSummary.issues.length" class="sync-issue-list"><li v-for="issue in syncSummary.issues" :key="issue">{{ issue }}</li></ul><button class="primary" @click="sync" :disabled="syncing || !supported || !networkOnline">{{ syncing?'同步中…':'立即同步' }}</button><p v-if="!networkOnline" class="form-note">当前离线，本机内容保留，联网后可重试。</p></section></div>

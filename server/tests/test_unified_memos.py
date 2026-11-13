@@ -34,34 +34,35 @@ def test_uncategorized_memo_persists_reminder_attachment_and_creator_rights(home
     with connect(path) as db:service.validate_database(db)
 
 
-def test_calendar_uses_reminder_clock_for_all_kinds_and_limits_new_reminders(home):
+def test_calendar_uses_reminder_clock_for_all_kinds_and_accepts_multiple_times(home):
     path,app,(a,b,c)=home
     reminder={'id':str(uuid4()),'at':'2090-11-05T01:30:00Z'}
     data={'title':'提醒即日程','reminders':[reminder]}
     item=saved(op(a,'memo',str(uuid4()),'create',data))
-    assert op(a,'memo',str(uuid4()),'create',{**data,'reminders':[reminder,{**reminder,'id':str(uuid4())}]}).status_code==422
+    duplicate=saved(op(a,'memo',str(uuid4()),'create',{**data,'reminders':[reminder,{**reminder,'id':str(uuid4())}]}))
     saved(op(a,'memo',str(uuid4()),'create',{'kind':'schedule','title':'无提醒旧日程','schedule':{'start_date':'2090-11-05'}}))
     result=a.get('/api/v2/memos/calendar?from_date=2090-11-05&to_date=2090-11-05',headers=headers(a)).json()
-    assert [(o['memo_id'],o['start_time']) for o in result['occurrences']]==[(item['id'],'09:30')]
-    assert result['occurrences'][0]['reminder_id']==reminder['id']
+    assert {(o['memo_id'],o['start_time']) for o in result['occurrences']}=={(item['id'],'09:30'),(duplicate['id'],'09:30')}
+    assert len(result['occurrences'])==2
 
 
 def test_legacy_schedule_stays_open_and_completed_repeat_reopens_at_reminder_clock(home,monkeypatch):
     from server.tests.test_memo_lifecycle import clock, generate, detail
-    path,app,(a,b,c)=home;clock(monkeypatch,calendar.anchor('2090-11-05','10:00'))
+    path,app,(a,b,c)=home;clock(monkeypatch,calendar.anchor('2090-11-05','08:00'))
     data={'kind':'schedule','title':'统一循环','schedule':{'start_date':'2090-11-05','start_time':'09:00','end_time':'09:30'},
           'recurrence':{'start_date':'2090-11-05','frequency':'weekly'},
           'reminders':[{'id':str(uuid4()),'at':'2090-11-05T09:30:00+08:00'}]}
     item=saved(op(a,'memo',str(uuid4()),'create',data))
-    generate(path,calendar.anchor('2090-11-05','10:00'))
+    clock(monkeypatch,calendar.anchor('2090-11-05','10:00'));generate(path,calendar.anchor('2090-11-05','10:00'))
     assert not detail(a,item)['archived']
     done=saved(op(a,'memo',item['id'],'complete',{'completed':True},1))
-    assert done['archived'] and done['completed']
+    assert not done['archived'] and not done['completed']
+    assert done['reminder_occurrences'][0]['completed']
     # Completing this cycle keeps the next fixed reminder on the calendar.
     upcoming=a.get('/api/v2/memos/calendar?from_date=2090-11-12&to_date=2090-11-12',headers=headers(a)).json()['occurrences']
     assert [(o['memo_id'],o['start_time']) for o in upcoming]==[(item['id'],'09:30')]
     generate(path,calendar.anchor('2090-11-12','09:29'))
-    assert detail(a,item)['archived']
+    assert detail(a,item)['current_occurrence_at']=='2090-11-12T09:30:00+08:00'
     generate(path,calendar.anchor('2090-11-12','09:30'))
     reopened=detail(a,item)
     assert not reopened['archived'] and not reopened['completed']
@@ -76,10 +77,10 @@ def test_early_completion_consumes_today_cycle_until_next_weekly_reminder(home,m
     item=saved(op(a,'memo',str(uuid4()),'create',data))
     saved(op(a,'memo',item['id'],'complete',{'completed':True},1))
     generate(path,calendar.anchor('2090-11-05','09:30'))
-    assert detail(a,item)['completed']
+    assert detail(a,item)['reminder_occurrences'][0]['completed']
     upcoming=a.get('/api/v2/memos/calendar?from_date=2090-11-05&to_date=2090-11-12',headers=headers(a)).json()['occurrences']
     assert [(o['date'],o['start_time']) for o in upcoming]==[('2090-11-12','09:30')]
-    generate(path,calendar.anchor('2090-11-12','09:29'));assert detail(a,item)['completed']
+    generate(path,calendar.anchor('2090-11-12','09:29'));assert detail(a,item)['reminder_occurrences'][0]['completed']
     generate(path,calendar.anchor('2090-11-12','09:30'));assert not detail(a,item)['completed']
 
 

@@ -63,6 +63,11 @@ def memo_dto(db,row):
     result.update({key:json.loads(row[key+'_json']) if row[key+'_json'] else None for key in ('schedule','reminders','recurrence')})
     from .lifecycle import metadata
     result.update(metadata(db,row))
+    from .calendar import current_occurrence,local_time
+    from .events import rule_effective_at
+    effective={rule['id']:rule_effective_at(db,result,rule) for rule in result['reminders']}
+    current=current_occurrence(result,local_time(datetime.now(UTC)),effective)
+    result['current_occurrence_at']=current['occurrence_at'] if current else None
     return result
 
 
@@ -207,8 +212,6 @@ def apply_record(db,user_id,body,src):
         if data['schedule'] and data['recurrence'] and data['schedule']['start_date']!=data['recurrence']['start_date']:fail('recurrence_start_mismatch',422)
         ids=[r['id'] for r in data['reminders']]
         if len(set(ids))!=len(ids):fail('duplicate_reminder',422)
-        # Recovery validation still accepts historical multi-reminder records.
-        if len(ids)>1:fail('single_reminder_required',422)
         allowed={user_id} if src['scope']=='private' else {r[0] for r in db.execute('SELECT user_id FROM family_members WHERE family_id=? AND active=1',(src['family_id'],))}
         author=existing['author_id'] if existing else user_id
         for reminder in data['reminders']:
@@ -221,21 +224,67 @@ def apply_record(db,user_id,body,src):
             db.execute('INSERT INTO memos(id,scope,namespace,author_id,updated_by,category_id,title,body_markdown,version,created_at,updated_at,kind,schedule_json,reminders_json,recurrence_json) VALUES(?,?,?,?,?,?,?,?,1,?,?,?,?,?,?)',(entity_id,src['scope'],ns,user_id,user_id,data['category_id'],data['title'],data['body_markdown'],now,now,data['kind'],schedule,json.dumps(data['reminders']),recurrence))
         else:
             db.execute('UPDATE memos SET category_id=?,title=?,body_markdown=?,kind=?,schedule_json=?,reminders_json=?,recurrence_json=?,updated_by=?,version=version+1,updated_at=? WHERE id=?',(data['category_id'],data['title'],data['body_markdown'],data['kind'],schedule,json.dumps(data['reminders']),recurrence,user_id,now,entity_id))
-        if existing and (existing['schedule_json']!=schedule or existing['recurrence_json']!=recurrence):
+        if existing:
             from .lifecycle import state,save
-            lifecycle=state(existing);lifecycle.pop('suppressed',None)
-            # Preserve archived dates/timestamps when editing the future series.
-            lifecycle['occurrences']={day:entry for day,entry in lifecycle.get('occurrences',{}).items() if entry.get('archived_at')}
-            save(db,entity_id,lifecycle)
+            lifecycle=state(existing);changed=False
+            if existing['kind']=='schedule' and existing['recurrence_json'] and len(json.loads(existing['reminders_json']))==1 and len(data['reminders'])>1:
+                from .lifecycle import preserve_legacy_reminder_occurrences
+                preserve_legacy_reminder_occurrences(memo_dto(db,existing),lifecycle);changed=True
+            if existing['schedule_json']!=schedule or existing['recurrence_json']!=recurrence:
+                lifecycle.pop('suppressed',None)
+                # Preserve archived dates/timestamps when editing the future series.
+                lifecycle['occurrences']={day:entry for day,entry in lifecycle.get('occurrences',{}).items() if entry.get('archived_at')};changed=True
+            if changed:save(db,entity_id,lifecycle)
         manifest(db,user_id,entity_id,data['attachments'])
     elif kind in ('complete','archive'):
         from .lifecycle import state,save,occurrence_day,occurrence_schedule
         from .calendar import local_time
         data=parse(models.CompleteData if kind=='complete' else models.ArchiveData,body.data)
         lifecycle=state(existing);record=memo_dto(db,existing)
-        occurrence=occurrence_day(record,data.get('occurrence_date'),local_time(now))
+        slot=None
+        if data.get('occurrence_at'):
+            from .calendar import reminder_instances
+            instant=local_time(data['occurrence_at']);key=instant.isoformat()
+            previous=lifecycle.get('reminder_occurrences',{}).get(key)
+            if previous:slot={'occurrence_at':key,'reminder_id':previous['reminder_id']}
+            else:
+                from .events import rule_effective_at
+                effective={r['id']:rule_effective_at(db,record,r) for r in record['reminders']}
+                slot=next((item for item in reminder_instances(record,instant.date(),instant.date(),effective,include_completed=True) if item['occurrence_at']==key),None)
+                if slot is None:fail('invalid_occurrence',422)
+        elif data.get('occurrence_date') and len(record['reminders'])>1:
+            from datetime import date
+            from .calendar import reminder_instances,reminder_time
+            from .events import rule_effective_at
+            day=date.fromisoformat(data['occurrence_date']);display_days=[]
+            for reminder in record['reminders']:
+                initial=reminder_time(reminder,record['schedule'])
+                origin=date.fromisoformat(record['recurrence']['start_date']) if record['recurrence'] else date.fromisoformat(record['schedule']['start_date']) if reminder['mode']=='relative' else initial.date()
+                display_days.append(day+(initial.date()-origin))
+            effective={r['id']:rule_effective_at(db,record,r) for r in record['reminders']}
+            all_candidates=[item for item in reminder_instances(record,min(display_days),max(display_days),effective,include_completed=True) if item['occurrence_date']==day.isoformat()]
+            archived_keys={item['occurrence_at'] for item in record['reminder_occurrences'] if item['archived_at']}
+            candidates=[item for item in all_candidates if item['occurrence_at'] not in archived_keys]
+            due=[item for item in candidates if local_time(item['occurrence_at'])<=local_time(now)]
+            slot=min(due or candidates,key=lambda item:item['occurrence_at']) if candidates else None
+            if not (data['completed'] if kind=='complete' else data['archived']):
+                valid_keys={item['occurrence_at'] for item in all_candidates}
+                archived=[item for item in record['reminder_occurrences'] if item['occurrence_at'] in valid_keys and item['archived_at']]
+                if archived:slot=max(archived,key=lambda item:item['occurrence_at'])
+            if slot is None:fail('no_pending_occurrence',409)
+        elif kind=='complete' and not data.get('occurrence_date') and not record['completed'] and (record['recurrence'] or len(record['reminders'])>1) and record['reminders']:
+            from .calendar import current_occurrence
+            from .events import rule_effective_at
+            effective={r['id']:rule_effective_at(db,record,r) for r in record['reminders']}
+            slot=current_occurrence(record,local_time(now),effective)
+            if slot is None:fail('no_pending_occurrence',409)
+        occurrence=occurrence_day(record,data.get('occurrence_date'),local_time(now)) if slot is None else None
         desired=data['completed'] if kind=='complete' else data['archived']
-        if occurrence:
+        if slot:
+            entries=lifecycle.setdefault('reminder_occurrences',{});previous=entries.get(slot['occurrence_at'],{})
+            entries[slot['occurrence_at']]={'reminder_id':slot['reminder_id'],'archived_at':(previous.get('archived_at') or now) if desired else None,
+                                         'completed':desired if kind=='complete' else previous.get('completed',False) if desired else False}
+        elif occurrence:
             entries=lifecycle.setdefault('occurrences',{});previous=entries.get(occurrence,{})
             entries[occurrence]={'archived_at':(previous.get('archived_at') or now) if desired else None,
                                  'completed':desired if kind=='complete' else previous.get('completed',False) if desired else False,
@@ -252,7 +301,7 @@ def apply_record(db,user_id,body,src):
         save(db,entity_id,lifecycle)
         db.execute('UPDATE memos SET updated_by=?,version=version+1,updated_at=? WHERE id=?',(user_id,now,entity_id))
         if desired:
-            if occurrence:
+            if occurrence or slot:
                 from .lifecycle import cancel_occurrence_events
                 cancel_occurrence_events(db,entity_id)
             else:

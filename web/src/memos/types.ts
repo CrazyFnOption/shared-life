@@ -40,6 +40,9 @@ interface RecordView {
   can_delete?: boolean
   reminders?: MemoReminder[]
   recurrence?: MemoRecurrence | null
+  current_occurrence_at?: string | null
+  occurrence_at?: string
+  occurrence_key?: string
   can_edit?: boolean
   category_id?: string
   focused?: boolean
@@ -91,7 +94,7 @@ export interface MemoOperationCommand extends MemoCommandOrigin { operation: Mem
 export interface MemoCommandOrigin { request_id: string; source: Source }
 export interface MemoSaveCommand extends MemoCommandOrigin { draft: MemoDraft }
 export interface MemoRecordCommand extends MemoCommandOrigin { record_id: string; base_version: number }
-export interface MemoCompleteCommand extends MemoRecordCommand { completed: boolean }
+export interface MemoCompleteCommand extends MemoRecordCommand { completed: boolean; occurrence_at?: string }
 export interface MemoFocusCommand extends MemoRecordCommand { focused: boolean }
 export interface MemoCategoryCommand extends MemoCommandOrigin { name: string }
 export interface MemoCommandResult extends MemoCommandOrigin {
@@ -102,5 +105,5 @@ export interface MemoCommandResult extends MemoCommandOrigin {
 export interface MemoDraftChange { source: Source; draft: MemoDraft | null }
 
 export function copyDraft(draft: MemoDraft): MemoDraft {
-  return { ...draft, source:draft.source?{...draft.source}:undefined, attachments: draft.attachments.map(file => ({ ...file })),reminders:draft.reminders?.map(reminder=>({...reminder,recipient_ids:[...reminder.recipient_ids]})),recurrence:draft.recurrence?{...draft.recurrence}:null }
+  return { ...draft, source:draft.source?{...draft.source}:undefined, attachments: draft.attachments.map(file => ({ ...file })),reminders:draft.reminders?.map(reminder=>({...reminder,recipient_ids:[...reminder.recipient_ids]})),recurrence:draft.recurrence?{...draft.recurrence,...(draft.recurrence.weekdays?{weekdays:[...draft.recurrence.weekdays]}:{}),...(draft.recurrence.month_days?{month_days:[...draft.recurrence.month_days]}:{})}:null }
 }

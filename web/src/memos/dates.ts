@@ -15,7 +15,7 @@ export function scheduleOnDay(record: ScheduleView, day: string): boolean {
   return record.start_date <= day && (day < end || day === end && (!record.start_time || !record.end_time || record.end_time !== '00:00' || record.start_date === end))
 }
 export function schedulesForDay(records:ScheduleView[],day:string):ScheduleView[]{
- return records.filter(record=>!record.archived).flatMap(record=>(record.recurrence||record.calendar_projection)&&!record.occurrence_key?(record.occurrences??[]).filter(o=>o.date===day).map(occurrence=>({...record,start_date:occurrence.start_date,end_date:occurrence.end_date,start_time:occurrence.start_time,end_time:occurrence.end_time,occurrence_date:occurrence.occurrence_date??occurrence.start_date,occurrence_key:`${record.id}:${occurrence.reminder_id??occurrence.start_date}:${occurrence.date}`,occurrences:[occurrence]})):scheduleOnDay(record,day)?[record]:[]).sort(compareSchedules)
+ return records.filter(record=>!record.archived).flatMap(record=>(record.recurrence||record.calendar_projection)&&!record.occurrence_key?(record.occurrences??[]).filter(o=>o.date===day).map(occurrence=>({...record,start_date:occurrence.start_date,end_date:occurrence.end_date,start_time:occurrence.start_time,end_time:occurrence.end_time,occurrence_date:occurrence.occurrence_date??occurrence.start_date,occurrence_at:occurrence.occurrence_at,occurrence_key:`${record.id}:${occurrence.occurrence_at??`${occurrence.reminder_id??occurrence.start_date}:${occurrence.date}`}`,occurrences:[occurrence]})):scheduleOnDay(record,day)?[record]:[]).sort(compareSchedules)
 }
 export function compareSchedules(a: ScheduleView, b: ScheduleView): number {
   if (!a.start_time && !b.start_time) return alphabetic.compare(a.title, b.title)

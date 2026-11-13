@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { occurrenceLabel } from './reminderSlots'
 import MemoRecordRow from './MemoRecordRow.vue'
 import { homeFocusedRecords } from './view'
 import type { MemoCategoryView, MemoRecordView } from './types'
@@ -7,7 +8,7 @@ const props=defineProps<{records:MemoRecordView[];categories:MemoCategoryView[];
 const emit=defineEmits<{create:[];open:[record:MemoRecordView];complete:[record:MemoRecordView];expense:[]}>()
 const focused=computed(()=>homeFocusedRecords(props.records))
 const key=(item:MemoRecordView)=>`${item.kind==='memo'&&item.origin==='plan_task'?'plan_task':'memo'}:${item.id}`
-function category(item:MemoRecordView){return item.kind==='memo'&&item.origin==='plan_task'?'计划任务':props.categories.find(c=>c.id===item.category_id)?.name??'未分类'}
+function category(item:MemoRecordView){return item.kind==='memo'&&item.origin==='plan_task'?'计划任务':(props.categories.find(c=>c.id===item.category_id)?.name??'未分类')+(item.recurrence&&item.current_occurrence_at?' · '+occurrenceLabel(item.current_occurrence_at):'')}
 </script>
 <template>
   <section class="home-quick" aria-label="首页快捷操作">

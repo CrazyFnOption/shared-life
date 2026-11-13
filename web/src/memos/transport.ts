@@ -12,7 +12,7 @@ async function attachment(source:Source,memoId:string,id:string,blob?:Blob):Prom
  }finally{if(blob)apiWrites.value--}
 }
 export const memoApi={
- notification:(userId:string,source:Source,id:string)=>apiRequest<{source:Source;message:MemoMessage}>(`/memos/notifications/${encodeURIComponent(id)}`,userId,undefined,undefined,undefined,source),
+ notification:(userId:string,source:Source,id:string)=>apiRequest<{source:Source;message:MemoMessage|null;notice?:string;choose_scope?:boolean}>(`/memos/notifications/${encodeURIComponent(id)}`,userId,undefined,undefined,undefined,source),
  calendar:(userId:string,source:Source,month:string)=>{const range=calendarBounds(month);return apiRequest<MemoCalendarSnapshot>(`/memos/calendar?from_date=${range.from}&to_date=${range.to}`,userId,undefined,undefined,undefined,source)},
  messages:(userId:string,source:Source,ignored=false)=>apiRequest<{source:Source;messages:MemoMessage[]}>(`/memos/messages${ignored?'?include_ignored=true':''}`,userId,undefined,undefined,undefined,source),
  ignore:(userId:string,source:Source,id:string,restore=false)=>apiRequest<{source:Source;id:string;ignored:boolean}>(`/memos/messages/${encodeURIComponent(id)}/${restore?'restore':'ignore'}`,userId,{},undefined,undefined,source),

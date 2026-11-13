@@ -412,6 +412,29 @@ print(json.dumps(proof))
         self.remote(self.compose(self.source, 'up', '-d', '--no-build', '--pull', 'never', 'app'), stage='switch')
         return {'image_id': self.image_info(self.target)['Id'], 'compose_up': 'returned', 'database_restore_or_migration': 'none'}
 
+    def https_request(self, route, path):
+        parsed = urlsplit(route['origin'])
+        argv = ['curl', '--silent', '--show-error', '--fail', '--noproxy', '*', '--connect-timeout', '8',
+                '--max-time', '20', '--resolve', f'{parsed.hostname}:{parsed.port or 443}:{route["address"]}']
+        if route.get('interface'):
+            argv += ['--interface', route['interface']]
+        argv += [route['origin'].rstrip('/') + '/' + path]
+        return subprocess.run(argv, capture_output=True)
+
+    def https_preflight(self):
+        # Use the executor's exact verification routes before any remote mutation, including owner/locks.
+        for route in self.c['https_routes']:
+            message = ('Execution environment prerequisite not met: HTTPS route ' + route['name'] +
+                       '/api/health; no remote writes performed. Check the configured network/address/interface; '
+                       'no route was skipped or changed.')
+            try:
+                result = self.https_request(route, 'api/health')
+                require(result.returncode == 0, message + f' curl exit {result.returncode}.')
+                healthy = json.loads(result.stdout) == {'status': 'ok'}
+            except (OSError, ValueError):
+                raise ReleaseError(message + ' Health response unavailable or invalid.') from None
+            require(healthy, message + ' Health response mismatch.')
+
     def verify(self):
         image_id = self.image_info(self.target)['Id']
         for _ in range(60):
@@ -435,14 +458,8 @@ print(json.dumps({'HTTP_health':'ok','runtime_HTTP_SHA':'all match','Push':'same
         self.remote(self.docker + ' exec -i ' + q(self.c['container']) + ' python -', code.encode(), stage='verify')
         checks = 0
         for route in self.c['https_routes']:
-            parsed = urlsplit(route['origin'])
             for path, expected in {'api/health': None, **self.m['runtime']}.items():
-                argv = ['curl', '--silent', '--show-error', '--fail', '--noproxy', '*', '--connect-timeout', '8',
-                        '--max-time', '20', '--resolve', f'{parsed.hostname}:{parsed.port or 443}:{route["address"]}']
-                if route.get('interface'):
-                    argv += ['--interface', route['interface']]
-                argv += [route['origin'].rstrip('/') + '/' + path]
-                result = subprocess.run(argv, capture_output=True)
+                result = self.https_request(route, path)
                 require(result.returncode == 0, 'HTTPS route failed: ' + route['name'] + '/' + path + '; query same release')
                 require(sha(result.stdout) == expected if expected else json.loads(result.stdout) == {'status': 'ok'},
                         'HTTPS resource/health mismatch: ' + route['name'] + '/' + path)
@@ -460,6 +477,7 @@ print(json.dumps({'HTTP_health':'ok','runtime_HTTP_SHA':'all match','Push':'same
         else:
             self.resources(state, self.c['baseline']['image'], self.c['baseline']['image_id'])
             require(state['health'] == 'healthy', 'Baseline not healthy')
+        self.https_preflight()
         if not (self.out / 'preflight.json').exists():
             write_json(self.out / 'preflight.json', state)
         self.init_remote()

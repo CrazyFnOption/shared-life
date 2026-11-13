@@ -2,7 +2,7 @@
 from datetime import date, datetime
 from typing import Literal
 from uuid import UUID
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator, model_serializer
 
 
 class Model(BaseModel):
@@ -71,6 +71,12 @@ class CategoryData(Model):
 class CompleteData(Model):
     completed: bool = Field(strict=True)
     occurrence_date: date | None = None
+    occurrence_at: datetime | None = None
+
+    @model_validator(mode='after')
+    def target(self):
+        if self.occurrence_at is not None and (self.occurrence_at.tzinfo is None or self.occurrence_date is not None):raise ValueError('Expected one timezone-aware occurrence')
+        return self
 
 
 class Schedule(Model):
@@ -113,9 +119,27 @@ class Recurrence(Model):
     lunar_month: int | None = Field(default=None,ge=1,le=12,strict=True)
     lunar_day: int | None = Field(default=None,ge=1,le=30,strict=True)
     lunar_leap: bool = False
+    weekdays: list[int] | None = Field(default=None,min_length=1,max_length=7)
+    month_days: list[int] | None = Field(default=None,min_length=1,max_length=31)
+
+    @field_validator('weekdays','month_days',mode='before')
+    @classmethod
+    def selected_days(cls,value,info):
+        if value is None:return value
+        maximum=7 if info.field_name=='weekdays' else 31
+        if not isinstance(value,list) or any(type(day)!=int or not 1<=day<=maximum for day in value) or len(set(value))!=len(value):raise ValueError('Invalid selected days')
+        return sorted(value)
+
+    @model_serializer(mode='wrap')
+    def keep_legacy_shape(self,handler):
+        data=handler(self)
+        for key in ('weekdays','month_days'):
+            if getattr(self,key) is None:data.pop(key,None)
+        return data
 
     @model_validator(mode='after')
     def valid(self):
+        if self.weekdays is not None and self.frequency!='weekly' or self.month_days is not None and self.frequency!='monthly':raise ValueError('Selected days require matching frequency')
         if self.until and self.until<self.start_date:raise ValueError('Invalid recurrence end')
         if self.calendar=='lunar' and (self.frequency!='yearly' or self.lunar_month is None or self.lunar_day is None):raise ValueError('Lunar requires yearly month and day')
         if not 1901<=self.start_date.year<=2099 or self.until and self.until.year>2099:raise ValueError('Supported recurrence years are 1901..2099')
@@ -125,6 +149,12 @@ class Recurrence(Model):
 class ArchiveData(Model):
     archived: bool = Field(strict=True)
     occurrence_date: date | None = None
+    occurrence_at: datetime | None = None
+
+    @model_validator(mode='after')
+    def target(self):
+        if self.occurrence_at is not None and (self.occurrence_at.tzinfo is None or self.occurrence_date is not None):raise ValueError('Expected one timezone-aware occurrence')
+        return self
 
 
 class Empty(Model):
@@ -173,3 +203,18 @@ class ArchiveState(Model):
     reason: Literal['complete','archive','expired'] | None = None
     suppressed: bool = Field(default=False,strict=True)
     occurrences: dict[date,ArchiveOccurrenceState] = Field(default_factory=dict)
+    reminder_occurrences: dict[datetime,'ReminderOccurrenceState'] = Field(default_factory=dict)
+
+    @model_validator(mode='after')
+    def aware_occurrences(self):
+        if any(at.tzinfo is None for at in self.reminder_occurrences):raise ValueError('Occurrence keys require timezone')
+        return self
+
+
+class ReminderOccurrenceState(Model):
+    reminder_id: UUID
+    archived_at: datetime | None = None
+    completed: bool = Field(strict=True)
+
+
+ArchiveState.model_rebuild()

@@ -4,7 +4,7 @@ Receipts stay immutable. A restored occurrence stays open until rescheduled.
 """
 import json
 from datetime import date, timedelta
-from .calendar import anchor, dates, local_time
+from .calendar import anchor, dates, local_time, reminder_time
 
 
 def state(row):
@@ -20,6 +20,23 @@ def occurrence_schedule(schedule,occurrence):
     shifted['start_date']=occurrence
     if schedule.get('end_date'):shifted['end_date']=(date.fromisoformat(schedule['end_date'])+shift).isoformat()
     return shifted
+
+
+def preserve_legacy_reminder_occurrences(record,value):
+    """Expand old date archives using only the reminder before the edit."""
+    for entry in record.get('archived_occurrences',[]):
+        if not entry.get('archived_at'):continue
+        day=date.fromisoformat(entry['start_date'])
+        for rule in record['reminders']:
+            if rule['mode']=='relative':
+                saved_schedule=entry.get('schedule') or occurrence_schedule(record['schedule'],entry['start_date'])
+                when=reminder_time(rule,saved_schedule)
+            else:
+                initial=reminder_time(rule)
+                origin=date.fromisoformat(record['recurrence']['start_date'])
+                when=initial+timedelta(days=(day-origin).days)
+            value.setdefault('reminder_occurrences',{}).setdefault(when.isoformat(),{
+                'reminder_id':rule['id'],'archived_at':entry['archived_at'],'completed':entry['completed']})
 
 
 def occurrence_day(record,requested,now):
@@ -57,11 +74,14 @@ def metadata(db,row):
     if archived and not at:
         at=row['completed_at'] if row['completed'] else legacy_archive_time(db,row)
     return {'archived':archived,'archived_at':at,'auto_archive_suppressed':bool(value.get('suppressed')),
-            'archived_occurrences':[{'start_date':day,**entry} for day,entry in sorted(value.get('occurrences',{}).items())]}
+            'archived_occurrences':[{'start_date':day,**entry} for day,entry in sorted(value.get('occurrences',{}).items())],
+            'reminder_occurrences':[{'occurrence_at':instant,**entry} for instant,entry in sorted(value.get('reminder_occurrences',{}).items())]}
 
 
 def event_is_archived(row,event,rule):
-    if row['kind']!='schedule' or not row['recurrence_json']:return False
+    instant=local_time(event['occurrence']).isoformat()
+    if state(row).get('reminder_occurrences',{}).get(instant,{}).get('archived_at'):return True
+    if row['kind']!='schedule' or not row['recurrence_json'] or len(json.loads(row['reminders_json']))>1:return False
     schedule=json.loads(row['schedule_json']);recurrence=json.loads(row['recurrence_json'])
     initial=anchor(schedule['start_date'],schedule['start_time'])-timedelta(minutes=rule['offset_minutes']) if rule['mode']=='relative' else local_time(rule['at'])
     shift=initial.date()-date.fromisoformat(recurrence['start_date'])

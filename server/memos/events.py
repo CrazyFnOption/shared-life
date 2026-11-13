@@ -79,31 +79,22 @@ def generate(db,now,*,scope=None,namespace=None):
                     invalidate(db,row['id']);row=db.execute('SELECT * FROM memos WHERE id=?',(row['id'],)).fetchone();record=memo_dto(db,row)
                 elif row['last_cycle']!=cycle.isoformat():db.execute('UPDATE memos SET last_cycle=? WHERE id=?',(cycle.isoformat(),row['id']))
         if record['archived'] or record['completed']:continue
-        for rule in rules:
-            effective=rule_effective_at(db,record,rule)
-            if rule['mode']=='relative':
-                schedule=record['schedule'];base=anchor(schedule['start_date'],schedule['start_time']);offset=timedelta(minutes=rule['offset_minutes'])
-                initial=base-offset
-            else:
-                initial=local_time(rule['at']);offset=timedelta(0)
-            if recurrence:
-                origin=date.fromisoformat(recurrence['start_date'])
-                # Fixed absolute time shifts with the planned date, not completion.
-                shift=(initial.date()-origin).days
-                planned=dates(recurrence,today-timedelta(days=shift),today-timedelta(days=shift))
-                due=[initial+timedelta(days=(planned_day-origin).days) for planned_day in planned]
-            else:due=[initial]
-            for when in due:
-                if row['kind']=='schedule' and recurrence:
-                    occurrence=(when.date()-timedelta(days=shift)).isoformat()
-                    if lifecycle_state(row).get('occurrences',{}).get(occurrence,{}).get('archived_at'):continue
-                if when.date()!=today or when>now or when<effective:continue
-                recipients=set(members) if rule['all_members'] else set(rule['recipient_ids'])
-                for uid in sorted(recipients & members.keys()):
-                    identity=str(uuid5(NAMESPACE_URL,f'shared-life:reminder:{restore}:{row["id"]}:{rule["id"]}:{when.isoformat()}:{uid}'))
-                    db.execute("INSERT OR IGNORE INTO memo_reminder_events(id,memo_id,rule_id,occurrence,user_id,source_restore_id,scope,namespace,relation_epoch,record_version,rule_signature,created_at,status) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'ready')",(identity,row['id'],rule['id'],when.isoformat(),uid,restore,row['scope'],row['namespace'],members[uid] or None,row['version'],signature(rule,recurrence,record['schedule']),now.isoformat()))
-                    from .notifications import enqueue
-                    enqueue(db,identity,now.timestamp())
+        from .calendar import reminder_instances
+        effective={rule['id']:rule_effective_at(db,record,rule) for rule in rules}
+        by_id={rule['id']:rule for rule in rules};seen=set()
+        for item in reminder_instances(record,today,today,effective):
+            when=local_time(item['occurrence_at']);rule=by_id[item['reminder_id']]
+            if when>now:continue
+            recipients=set(members) if rule['all_members'] else set(rule['recipient_ids'])
+            for uid in sorted(recipients & members.keys()):
+                # Multiple selected month-days can clamp onto the same day.
+                if (when,uid) in seen:continue
+                seen.add((when,uid))
+                if db.execute('SELECT 1 FROM memo_reminder_events WHERE memo_id=? AND occurrence=? AND user_id=? AND source_restore_id=?',(row['id'],when.isoformat(),uid,restore)).fetchone():continue
+                identity=str(uuid5(NAMESPACE_URL,f'shared-life:reminder:{restore}:{row["id"]}:{rule["id"]}:{when.isoformat()}:{uid}'))
+                db.execute("INSERT OR IGNORE INTO memo_reminder_events(id,memo_id,rule_id,occurrence,user_id,source_restore_id,scope,namespace,relation_epoch,record_version,rule_signature,created_at,status) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'ready')",(identity,row['id'],rule['id'],when.isoformat(),uid,restore,row['scope'],row['namespace'],members[uid] or None,row['version'],signature(rule,recurrence,record['schedule']),now.isoformat()))
+                from .notifications import enqueue
+                enqueue(db,identity,now.timestamp())
 
 
 def messages(db,user_id,*,include_ignored=False):
@@ -124,6 +115,8 @@ def messages(db,user_id,*,include_ignored=False):
         if not requester or requester['relation_epoch']!=row['requester_epoch'] or row['author_epoch']!=src['relation_epoch']:continue
         result.append({'id':f'memo-deletion:{row["id"]}:{row["version"]}','kind':'memo_deletion_request','target_type':'deletion_request','target_id':row['id'],'record_id':row['memo_id'],'title':row['title'],'created_at':row['created_at'],'source':src})
     result.extend(ledger_messages(db,user_id,src))
+    from server.automation.notifications import messages as review_messages
+    result.extend(review_messages(db,user_id,src))
     from server.plans import service as plans
     for row in db.execute("SELECT * FROM plan_deletion_requests WHERE author_id=? AND status='pending'",(user_id,)).fetchall():
         try:

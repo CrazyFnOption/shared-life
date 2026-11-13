@@ -1,3 +1,4 @@
+import { currentOccurrenceAt, occurrenceAt } from './reminderSlots'
 import type { MemoPartition, MemoOccurrenceState, MemoSchedule } from './domain'
 import type { MemoRecordView, ScheduleView } from './types'
 
@@ -22,7 +23,9 @@ export function memoRecordViews(partition:MemoPartition|undefined,now=Date.now()
   const completed=record.completed,legacy=record.kind!=='schedule'&&completed
   const archived=!!record.archived||legacy
   const archivedAt=record.archived_at??null
-  const common={category_id:record.category_id??'',focused:position>=0,focus_position:position,id:record.id,version:record.version,title:record.title,created_at:record.created_at,body:record.body_markdown,creator_id:record.author_id,creator_name:partition.users.find(u=>u.id===record.author_id)?.display_name??'原记录人',completed,archived,archived_at:archivedAt,archived_time_unknown:archived&&!archivedAt,can_edit:!archived,can_delete:record.author_id===partition.source.user_id,reminders:record.reminders??[],recurrence:record.recurrence??null,attachments:record.attachments.map(file=>{const local=partition.blobs.find(b=>b.id===file.id&&!b.frozen&&!b.restore_review),meta=partition.attachments.find(a=>a.id===file.id);return{id:file.id,kind:file.kind,sha256:file.sha256,file_name:file.name,mime_type:file.mime_type,size_bytes:file.size_bytes,blob:local?.blob,pending:local?.pending??meta?.state==='pending',error:local?.error}}),pending:partition.queue.some(q=>q.operation.entity_id===record.id),error:partition.queue.find(q=>q.operation.entity_id===record.id&&q.error)?.error}
+  const currentAt=currentOccurrenceAt(record,now,Object.values(partition.calendar??{}).flatMap(cache=>cache.occurrences.filter(row=>row.memo_id===record.id)))
+  const common={current_occurrence_at:currentAt,category_id:record.category_id??'',focused:position>=0,focus_position:position,id:record.id,version:record.version,title:record.title,created_at:record.created_at,body:record.body_markdown,creator_id:record.author_id,creator_name:partition.users.find(u=>u.id===record.author_id)?.display_name??'原记录人',completed,archived,archived_at:archivedAt,archived_time_unknown:archived&&!archivedAt,can_edit:!archived,can_delete:record.author_id===partition.source.user_id,reminders:record.reminders??[],recurrence:record.recurrence??null,attachments:record.attachments.map(file=>{const local=partition.blobs.find(b=>b.id===file.id&&!b.frozen&&!b.restore_review),meta=partition.attachments.find(a=>a.id===file.id);return{id:file.id,kind:file.kind,sha256:file.sha256,file_name:file.name,mime_type:file.mime_type,size_bytes:file.size_bytes,blob:local?.blob,pending:local?.pending??meta?.state==='pending',error:local?.error}}),pending:partition.queue.some(q=>q.operation.entity_id===record.id),error:partition.queue.find(q=>q.operation.entity_id===record.id&&q.error)?.error}
+  const slotHistory:MemoRecordView[]=(record.reminder_occurrences??[]).filter(slot=>slot.archived_at).map(slot=>({...common,kind:'memo' as const,category_id:record.category_id??'',focused:false,focus_position:-1,occurrence_key:`${record.id}:${occurrenceAt(slot.occurrence_at)}`,occurrence_at:occurrenceAt(slot.occurrence_at),current_occurrence_at:occurrenceAt(slot.occurrence_at),archived:true,completed:slot.completed,archived_at:slot.archived_at,archived_time_unknown:false,can_edit:false}))
   if(record.kind==='schedule'&&record.schedule){
    const pending=partition.queue.filter(q=>q.operation.entity_type==='memo'&&q.operation.entity_id===record.id),snapshot=partition.snapshot.find(m=>m.id===record.id)
    const calendarVersion=pending.length&&pending.every(q=>['complete','archive'].includes(q.operation.kind))?snapshot?.version??record.version:record.version
@@ -37,14 +40,14 @@ export function memoRecordViews(partition:MemoPartition|undefined,now=Date.now()
    // by the series so ordinary restores do not create a duplicate row.
    const restored=[...entries.values()].filter(entry=>!entry.archived_at&&entry.suppressed&&entry.schedule&&!occurrences.some(item=>item.start_date===entry.start_date&&item.end_date===entry.schedule!.end_date&&item.start_time===entry.schedule!.start_time&&item.end_time===entry.schedule!.end_time))
    const restoredDays=new Set(restored.map(entry=>entry.start_date))
-   const base:ScheduleView={...common,kind:'schedule',...record.schedule,series_schedule:record.schedule,auto_archive_suppressed:record.auto_archive_suppressed,occurrences:occurrences.filter(o=>!entries.get(o.occurrence_date??o.start_date)?.archived_at&&!restoredDays.has(o.occurrence_date??o.start_date)),occurrence_months:months.map(([month])=>month)}
-   const history=[...entries.values()].filter(e=>e.archived_at).map(entry=>({...occurrenceView(base,entry.start_date),...(entry.schedule??{}),archived:true,archived_at:entry.archived_at,completed:entry.completed,can_edit:false}))
+   const base:ScheduleView={...common,kind:'schedule',...record.schedule,series_schedule:record.schedule,auto_archive_suppressed:record.auto_archive_suppressed,occurrences:occurrences.filter(o=>((record.reminders?.length??0)>1||!entries.get(o.occurrence_date??o.start_date)?.archived_at)&&!restoredDays.has(o.occurrence_date??o.start_date)),occurrence_months:months.map(([month])=>month)}
+   const history=[...entries.values()].filter(e=>e.archived_at&&(record.reminders?.length??0)<=1).map(entry=>({...occurrenceView(base,entry.start_date),...(entry.schedule??{}),archived:true,archived_at:entry.archived_at,completed:entry.completed,can_edit:false}))
    const first=base.occurrences?.filter(o=>scheduleDeadline(record.schedule!,o.start_date)>now).sort((a,b)=>a.start_date.localeCompare(b.start_date))[0]
    const current=record.recurrence&&first?{...occurrenceView(base,first.occurrence_date??first.start_date),occurrence_key:undefined}:base
    const reopened=restored.map(entry=>({...occurrenceView(base,entry.start_date),...entry.schedule!,archived:false,archived_at:null,archived_time_unknown:false,completed:false,auto_archive_suppressed:true,occurrences:[],can_edit:false}))
-   return[current,...history,...reopened]
+   return[current,...history,...reopened,...slotHistory]
   }
-  return[{...common,kind:'memo',category_id:record.category_id??'',focused:position>=0,focus_position:position}]
+  return[{...common,kind:'memo',category_id:record.category_id??'',focused:position>=0,focus_position:position},...slotHistory]
  })
 }
 

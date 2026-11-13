@@ -298,6 +298,12 @@ class Worker:
                     db.commit();continue
                 if not db.execute('SELECT 1 FROM push_subscriptions WHERE owner_id=? AND endpoint=? AND active=1',(row['user_id'],sub['endpoint'])).fetchone():
                     db.commit();continue
+                # Build the target from the same snapshot as the final validity check.
+                from server.automation.notifications import payload
+                notification=payload(db,live)
+                if notification is None:
+                    db.execute("UPDATE notification_outbox SET status='cancelled' WHERE id=? AND status='pending'",(row['id'],))
+                    db.commit();continue
                 claimed=db.execute("UPDATE push_deliveries SET status='sending',attempts=attempts+1 WHERE outbox_id=? AND endpoint=? AND status='pending' AND attempts<3 AND EXISTS(SELECT 1 FROM notification_outbox WHERE id=? AND status='pending')",(row['id'],sub['endpoint'],row['id'])).rowcount
                 if claimed:
                     db.execute('UPDATE notification_outbox SET next_attempt=? WHERE id=?',(stamp,row['id']))
@@ -308,11 +314,6 @@ class Worker:
                 return
             status='sent'; http_status=None
             try:
-                if row['dedup_key'].startswith('memo:'):
-                    from server.memos.notifications import payload
-                    notification=payload(row)
-                else:
-                    notification={'title':'同在','body':'你有待办，请打开同在','url':'/'}
                 self.push.send({'endpoint':sub['endpoint'],'keys':json.loads(sub['keys_json'])},notification)
             except PushError as exc:
                 http_status=exc.status

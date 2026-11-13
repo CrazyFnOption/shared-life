@@ -28,6 +28,8 @@ const costNotice=computed(()=>conversation.value?aiCostNotice(conversation.value
 const drafts=computed(()=>conversation.value?.drafts??[]),activeDraft=computed(()=>drafts.value.find(d=>d.id===draftId.value)??drafts.value.at(-1)),preview=computed(()=>activeDraft.value?selectionWithStages(activeDraft.value,selected.value):[])
 const availableMaterials=computed(()=>props.record.attachments.filter(supportedAiMaterial)),blocked=computed(()=>!props.writable||busy.value||loading.value||!conversation.value?.configured||conversation.value?.budget.blocked||conversation.value?.status==='running'||!!pendingOutcome.value)
 const target=computed(()=>props.targetPlan??(props.record.kind==='plan'?props.record:undefined))
+const updateBlocked=computed(()=>busy.value||!!pendingOutcome.value||composing.value||!!input.value||attachmentIds.value.length>0||confirming.value||selected.value.length>0)
+defineExpose({updateBlocked})
 const author=computed(()=>props.users.find(u=>u.id===props.source.user_id)?.display_name??'我')
 function date(value:string|null|undefined){return value?new Date(value).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'}):'尚未核实'}
 function member(id:string){return props.users.find(u=>u.id===id)?.display_name??'原成员'}

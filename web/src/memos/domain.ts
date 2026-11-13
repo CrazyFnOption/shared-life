@@ -1,3 +1,4 @@
+import { currentOccurrenceAt, occurrenceAt, reminderInstances, legacyReminderHistory } from './reminderSlots'
 import type { BlobRestoreAudit } from '../blobRestoreReview'
 import type { MemoCalendarCache } from './calendarCache'
 import type { Account, AccountContext, Source, User } from '../types'
@@ -6,17 +7,18 @@ export interface MemoFileManifest {id:string;kind:'photo'|'file';name:string;mim
 export interface MemoCategory {id:string;scope:'private'|'shared';family_id:string|null;creator_id:string;name:string;version:number;deleted?:boolean}
 export interface MemoSchedule {start_date:string;end_date:string|null;start_time:string|null;end_time:string|null}
 export interface MemoReminder {id:string;mode:'absolute'|'relative';at:string|null;offset_minutes:number;recipient_ids:string[];all_members:boolean}
-export interface MemoRecurrence {frequency:'daily'|'weekly'|'monthly'|'yearly';interval:number;calendar:'solar'|'lunar';start_date:string;until:string|null;lunar_month:number|null;lunar_day:number|null;lunar_leap:boolean}
+export interface MemoRecurrence {frequency:'daily'|'weekly'|'monthly'|'yearly';interval:number;calendar:'solar'|'lunar';start_date:string;until:string|null;lunar_month:number|null;lunar_day:number|null;lunar_leap:boolean;weekdays?:number[];month_days?:number[]}
 export interface FocusTarget {kind:'memo'|'plan_task';id:string}
 export interface MemoFocus {id:string;version:number;targets:FocusTarget[]}
 export interface MemoCategoryOrder {id:string;version:number;category_ids:string[]}
 export interface MemoDeletionRequest {id:string;memo_id:string;requester_id:string;author_id:string;target_version:number;reason:string;status:'pending'|'accepted'|'rejected'|'stale';version:number;created_at:string;decided_at:string|null}
-export interface MemoMessage {id:string;kind:'reminder'|'memo_deletion_request'|'plan_deletion_request'|'expense_change_request'|'expense_category_change'|'family_invite';target_type:'memo'|'deletion_request'|'plan_deletion_request'|'expense_change_request'|'expense_category_change'|'family_invite';target_id:string;record_id:string;title:string;created_at:string;source:Source;ignored?:boolean}
+export interface MemoMessage {id:string;kind:'reminder'|'monthly_report'|'weekly_review'|'memo_deletion_request'|'plan_deletion_request'|'expense_change_request'|'expense_category_change'|'family_invite';target_type:'memo'|'monthly_report'|'weekly_review'|'deletion_request'|'plan_deletion_request'|'expense_change_request'|'expense_category_change'|'family_invite';target_id:string;record_id:string;title:string;created_at:string;source:Source;ignored?:boolean}
 export interface MemoData {category_id:string|null;title:string;body_markdown:string;attachments:MemoFileManifest[];kind?:'memo'|'schedule';schedule?:MemoSchedule|null;reminders?:MemoReminder[];recurrence?:MemoRecurrence|null}
 export interface MemoOccurrenceState {start_date:string;archived_at:string|null;completed:boolean;suppressed?:boolean;schedule?:MemoSchedule}
-export interface MemoRecord extends MemoData {id:string;scope:'private'|'shared';family_id:string|null;author_id:string;updated_by:string;completed:boolean;completed_at?:string|null;version:number;created_at:string;updated_at:string;archived?:boolean;archived_at?:string|null;auto_archive_suppressed?:boolean;archived_occurrences?:MemoOccurrenceState[];deleted?:boolean}
+export interface MemoReminderOccurrence {occurrence_at:string;reminder_id:string;archived_at:string|null;completed:boolean}
+export interface MemoRecord extends MemoData {id:string;scope:'private'|'shared';family_id:string|null;author_id:string;updated_by:string;completed:boolean;completed_at?:string|null;version:number;created_at:string;updated_at:string;archived?:boolean;archived_at?:string|null;auto_archive_suppressed?:boolean;archived_occurrences?:MemoOccurrenceState[];reminder_occurrences?:MemoReminderOccurrence[];current_occurrence_at?:string|null;deleted?:boolean}
 export interface MemoAttachment extends MemoFileManifest {memo_id:string;created_by:string;state:'pending'|'uploaded'|'deleted'}
-export interface MemoOperation {op_id:string;entity_type:'category'|'memo'|'focus'|'category_order'|'deletion_request';entity_id:string;kind:string;base_version:number;data:MemoData|{name:string}|{completed:boolean;occurrence_date?:string}|{archived:boolean;occurrence_date?:string}|{targets:FocusTarget[]}|{category_ids:string[]}|{target_category_id:string|null}|{memo_id:string;target_version:number;reason:string}|{accepted:boolean}|Record<string,never>}
+export interface MemoOperation {op_id:string;entity_type:'category'|'memo'|'focus'|'category_order'|'deletion_request';entity_id:string;kind:string;base_version:number;data:MemoData|{name:string}|{completed:boolean;occurrence_date?:string;occurrence_at?:string}|{archived:boolean;occurrence_date?:string;occurrence_at?:string}|{targets:FocusTarget[]}|{category_ids:string[]}|{target_category_id:string|null}|{memo_id:string;target_version:number;reason:string}|{accepted:boolean}|Record<string,never>}
 export type MemoEntity=MemoCategory|MemoRecord|MemoFocus|MemoCategoryOrder|MemoDeletionRequest
 export interface MemoReceipt {op_id:string;entity_type:MemoOperation['entity_type'];entity_id:string;version:number;record:MemoEntity;effects?:{memos?:MemoRecord[];categories?:MemoCategory[];category_order?:MemoCategoryOrder}}
 export interface MemoSnapshot {source:Source;categories:MemoCategory[];memos:MemoRecord[];attachments:MemoAttachment[];users:User[];focus?:MemoFocus;category_order?:MemoCategoryOrder;deletion_requests?:MemoDeletionRequest[];messages?:MemoMessage[]}
@@ -47,22 +49,40 @@ export function applyMemoOperation(p:MemoPartition,op:MemoOperation,userId:strin
   if(!before)throw new Error('memo_not_found')
   let data:Partial<MemoRecord>
   if(op.kind==='complete'||op.kind==='archive'){
-   const input=op.data as {completed?:boolean;archived?:boolean;occurrence_date?:string},desired=op.kind==='complete'?!!input.completed:!!input.archived
-   if(before.kind==='schedule'&&input.occurrence_date&&(before.recurrence||(before.archived_occurrences??[]).some(e=>e.start_date===input.occurrence_date))){
+   const input=op.data as {completed?:boolean;archived?:boolean;occurrence_date?:string;occurrence_at?:string},desired=op.kind==='complete'?!!input.completed:!!input.archived
+   const cached=Object.values(p.calendar??{}).flatMap(cache=>cache.occurrences.filter(row=>row.memo_id===before.id))
+   let target=input.occurrence_at
+   if(!target&&input.occurrence_date&&(before.reminders?.length??0)>1){
+    const all=before.reminders!.flatMap(reminder=>{const initial=reminder.mode==='absolute'?Date.parse(reminder.at!):Date.parse(`${before.schedule!.start_date}T${before.schedule!.start_time??'00:00'}:00+08:00`)-reminder.offset_minutes*60000;const origin=before.recurrence?.start_date??before.schedule?.start_date??occurrenceAt(new Date(initial).toISOString()).slice(0,10);return reminderInstances(before,initial+Date.parse(input.occurrence_date!+'T00:00:00Z')-Date.parse(origin+'T00:00:00Z'),cached)}).filter(row=>row.occurrence_date===input.occurrence_date)
+    const archived=(before.reminder_occurrences??[]).filter(slot=>slot.archived_at&&all.some(row=>row.occurrence_at===occurrenceAt(slot.occurrence_at)))
+    const candidates=all.filter(row=>!archived.some(slot=>occurrenceAt(slot.occurrence_at)===row.occurrence_at)).sort((a,b)=>a.occurrence_at!.localeCompare(b.occurrence_at!)),due=candidates.filter(row=>Date.parse(row.occurrence_at!)<=Date.parse(timestamp))
+    target=!desired&&archived.length?archived.sort((a,b)=>a.occurrence_at.localeCompare(b.occurrence_at)).at(-1)!.occurrence_at:(due.length?due:candidates)[0]?.occurrence_at
+    if(!target)throw new Error('no_pending_occurrence')
+   }
+   if(!target&&!input.occurrence_date&&op.kind==='complete'&&!before.completed&&(before.recurrence||(before.reminders?.length??0)>1)&&before.reminders?.length){target=currentOccurrenceAt(before,Date.parse(timestamp),cached)??undefined;if(!target)throw new Error('no_pending_occurrence')}
+   if(target){
+    const at=occurrenceAt(target),prior=before.reminder_occurrences?.find(slot=>occurrenceAt(slot.occurrence_at)===at)
+    const instance=[...cached,...reminderInstances(before,Date.parse(at),cached)].find(row=>row.occurrence_at&&occurrenceAt(row.occurrence_at)===at)
+    const reminderId=prior?.reminder_id??instance?.reminder_id??(before.current_occurrence_at&&occurrenceAt(before.current_occurrence_at)===at?before.reminders?.find(reminder=>reminder.mode==='absolute'&&occurrenceAt(reminder.at??'').slice(11,16)===at.slice(11,16))?.id:undefined)
+    if(!at||!reminderId)throw new Error('invalid_occurrence')
+    data={reminder_occurrences:[...(before.reminder_occurrences??[]).filter(slot=>occurrenceAt(slot.occurrence_at)!==at),{occurrence_at:at,reminder_id:reminderId,archived_at:desired?prior?.archived_at??timestamp:null,completed:op.kind==='complete'?desired:desired?prior?.completed??false:false}],current_occurrence_at:null}
+   }else if(before.kind==='schedule'&&input.occurrence_date&&(before.recurrence||(before.archived_occurrences??[]).some(e=>e.start_date===input.occurrence_date))){
     const day=input.occurrence_date??before.schedule!.start_date,entries=(before.archived_occurrences??[]).filter(e=>e.start_date!==day),prior=before.archived_occurrences?.find(e=>e.start_date===day)
     const schedule=prior?.schedule??{...before.schedule!,start_date:day,end_date:before.schedule!.end_date?new Date(Date.parse(day)+Date.parse(before.schedule!.end_date)-Date.parse(before.schedule!.start_date)).toISOString().slice(0,10):null}
     entries.push({start_date:day,archived_at:desired?prior?.archived_at??timestamp:null,completed:op.kind==='complete'?desired:desired?prior?.completed??false:false,suppressed:!desired,schedule})
     data={archived_occurrences:entries}
    }else data={archived:desired,archived_at:desired?before.archived_at??timestamp:null,completed:op.kind==='complete'?desired:desired?before.completed:false,completed_at:op.kind==='complete'&&desired?timestamp:null,auto_archive_suppressed:!desired}
   }else if(op.kind==='delete'||op.kind==='restore')data={deleted:op.kind==='delete'}
-  else{data=op.data as MemoData;if(JSON.stringify(data.schedule)!==JSON.stringify(before.schedule)||JSON.stringify(data.recurrence)!==JSON.stringify(before.recurrence))data={...data,auto_archive_suppressed:false,archived_occurrences:(before.archived_occurrences??[]).filter(e=>e.archived_at)}}
+  else{data=op.data as MemoData;if(JSON.stringify(data.schedule)!==JSON.stringify(before.schedule)||JSON.stringify(data.recurrence)!==JSON.stringify(before.recurrence)||JSON.stringify(data.reminders)!==JSON.stringify(before.reminders))data={...data,current_occurrence_at:undefined,auto_archive_suppressed:false,archived_occurrences:(before.archived_occurrences??[]).filter(e=>e.archived_at)}}
+  if(op.kind==='update'&&(data.reminders?.length??0)>1&&before.reminders?.length===1){const history=[...(before.reminder_occurrences??[])];for(const slot of legacyReminderHistory(before))if(!history.some(existing=>occurrenceAt(existing.occurrence_at)===slot.occurrence_at))history.push(slot);data={...data,reminder_occurrences:history}}
   next={...before,...data,updated_by:userId,version:before.version+1,updated_at:timestamp}
  }
+ if(next.recurrence&&next.current_occurrence_at===undefined){const cached=Object.values(p.calendar??{}).flatMap(cache=>cache.occurrences.filter(row=>row.memo_id===next.id));next.current_occurrence_at=currentOccurrenceAt(next,Date.parse(timestamp),cached,timestamp)}
  if(index<0)p.local.push(next);else p.local[index]=next
 }
 export function projectMemos(p:MemoPartition):void{
  const prior=p.local,oldCategories=p.local_categories
- p.local=p.snapshot.map(m=>({...m,attachments:m.attachments.map(a=>({...a}))}));p.local_categories=p.categories.filter(c=>!c.deleted).map(c=>({...c}));p.local_focus=p.focus?{...p.focus,targets:p.focus.targets.map(t=>({...t}))}:undefined;p.local_category_order=p.category_order?{...p.category_order,category_ids:[...p.category_order.category_ids]}:undefined;p.local_deletion_requests=(p.deletion_requests??[]).map(r=>({...r}))
+ p.local=p.snapshot.map(m=>({...m,attachments:m.attachments.map(a=>({...a})),reminders:m.reminders?.map(reminder=>({...reminder,recipient_ids:[...reminder.recipient_ids]})),recurrence:m.recurrence?{...m.recurrence,...(m.recurrence.weekdays?{weekdays:[...m.recurrence.weekdays]}:{}),...(m.recurrence.month_days?{month_days:[...m.recurrence.month_days]}:{})}:null,reminder_occurrences:m.reminder_occurrences?.map(slot=>({...slot})),archived_occurrences:m.archived_occurrences?.map(entry=>({...entry,schedule:entry.schedule?{...entry.schedule}:undefined}))}));p.local_categories=p.categories.filter(c=>!c.deleted).map(c=>({...c}));p.local_focus=p.focus?{...p.focus,targets:p.focus.targets.map(t=>({...t}))}:undefined;p.local_category_order=p.category_order?{...p.category_order,category_ids:[...p.category_order.category_ids]}:undefined;p.local_deletion_requests=(p.deletion_requests??[]).map(r=>({...r}))
  const blocked=new Set<string>()
  for(const pending of p.queue){const op=pending.operation;if(pending.frozen||pending.restore_review){blocked.add(op.entity_id);continue}if(blocked.has(op.entity_id))continue;try{pending.local_at??=prior.find(m=>m.id===op.entity_id)?.updated_at??new Date().toISOString();applyMemoOperation(p,op,pending.source.user_id,pending.local_at)}catch{const previous=prior.find(m=>m.id===op.entity_id);if(previous)p.local=p.local.filter(m=>m.id!==previous.id).concat(previous);const category=oldCategories.find(c=>c.id===op.entity_id);if(category&&!p.local_categories.some(c=>c.id===category.id))p.local_categories.push(category);blocked.add(op.entity_id)}}
 }

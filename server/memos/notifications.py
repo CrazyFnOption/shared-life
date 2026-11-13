@@ -51,7 +51,15 @@ def resolve(db,user_id,outbox_id):
     from .events import messages
     src=source(db,user_id)
     row=db.execute('SELECT * FROM notification_outbox WHERE id=? AND user_id=?',(outbox_id,user_id)).fetchone()
-    if not row or row['source_scope']!=src['scope'] or row['family_id']!=src['family_id'] or (row['relation_epoch'] or 0)!=src['relation_epoch'] or not valid(db,row,include_ignored=True,for_delivery=False):fail('notification_unavailable',404)
+    if not row:fail('notification_unavailable',404)
+    if not row['dedup_key'].startswith('memo:'):
+        from server.automation.notifications import resolve as review_resolve
+        return review_resolve(db,user_id,row,src)
+    if row['source_status']!='verified' or row['source_restore_id']!=src['restore_id'] or row['source_scope']!=src['scope'] or row['family_id']!=src['family_id'] or (row['relation_epoch'] or 0)!=src['relation_epoch']:fail('notification_unavailable',404)
+    if not valid(db,row,include_ignored=True,for_delivery=False):
+        event=db.execute('SELECT e.status,m.completed,m.archived,m.deleted FROM memo_reminder_events e JOIN memos m ON m.id=e.memo_id WHERE e.id=? AND e.user_id=? AND m.scope=? AND m.namespace=?',(row['dedup_key'][5:],user_id,src['scope'],src['family_id'] or user_id)).fetchone()
+        if event and not event['deleted'] and (event['completed'] or event['archived']):return {'source':src,'message':None,'notice':'这条提醒对应事项已完成或归档，当前没有待处理提醒。'}
+        fail('notification_unavailable',404)
     message=next((m for m in messages(db,user_id,include_ignored=True) if m['id']==row['dedup_key'][5:]),None)
     if not message:fail('notification_unavailable',404)
     return {'source':src,'message':message}

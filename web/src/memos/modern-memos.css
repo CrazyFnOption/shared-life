@@ -69,3 +69,30 @@
 .memos-workspace .memo-compose-settings .memo-field :is(input,select){max-width:100%;box-sizing:border-box}
 @media(max-width:360px){.memos-workspace .memo-compose-settings{padding-inline:14px}.memos-workspace .memo-compose-settings .memo-date-time,.memos-workspace .memo-repeat-fields{grid-template-columns:minmax(0,1fr)}.memos-workspace .memo-body-disclosure>summary{gap:8px;font-size:13px}.memos-workspace .memo-composer{gap:16px}}
 @media(min-width:600px){.memos-workspace .memo-repeat-fields{grid-template-columns:repeat(3,minmax(0,1fr))}.memos-workspace .memo-repeat-fields>.memo-field:last-child{grid-column:auto}}
+
+/* Visible clock fields avoid platform time dialogs while retaining every minute. */
+.memos-workspace .memo-time-input{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;min-width:0;border:0;padding:0;margin:0}
+.memos-workspace .memo-time-input>label{min-width:0}
+.memos-workspace .memo-time-input select{color-scheme:light;font-variant-numeric:tabular-nums}
+.memos-workspace .memo-time-input option{background:var(--memo-paper);color:var(--memo-ink)}
+.memos-workspace .memo-once-time{display:flex;flex-direction:column;gap:12px;min-width:0}
+
+.memos-workspace .memo-day-picker{margin:0;padding:0;border:0;min-width:0}
+.memos-workspace .memo-day-picker legend,.memos-workspace .memo-clock-list>.memo-field-head{font-size:13px;color:var(--memo-muted);margin-bottom:8px}
+.memos-workspace .memo-day-picker legend small{font-size:12px;font-weight:400;margin-left:8px}
+.memos-workspace .memo-day-options{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}
+.memos-workspace .memo-day-options button{min-height:44px;min-width:0;text-align:center;border:1px solid var(--memo-line);border-radius:10px;color:var(--memo-ink);background:var(--memo-paper);font-size:14px;font-variant-numeric:tabular-nums}
+.memos-workspace .memo-day-options button[aria-pressed=true]{background:var(--memo-soft);border-color:var(--memo-accent);color:var(--memo-accent);font-weight:600}
+.memos-workspace .memo-day-options button:hover{border-color:var(--memo-accent)}
+.memos-workspace .memo-day-options button:active{background:var(--memo-soft)}
+.memos-workspace .memo-day-picker>.memo-muted{margin-top:8px;font-size:12px}
+.memos-workspace .memo-clock-list{display:flex;flex-direction:column;gap:10px;min-width:0}
+.memos-workspace .memo-clock-list>.memo-field-head{margin:0;min-height:32px}
+.memos-workspace .memo-clock-list>.memo-field-head .memo-text-button{min-height:32px;padding-block:0}
+.memos-workspace .memo-clock-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;min-width:0}
+.memos-workspace .memo-clock-row>.memo-field{grid-column:1;min-width:0}
+.memos-workspace .memo-clock-row>.memo-text-button{padding-inline:4px;min-width:44px}
+.memos-workspace .memo-clock-list>.memo-muted{font-size:12px}
+
+.memos-workspace .memo-occurrence-label{font-size:14px;font-weight:550;color:var(--memo-accent);font-variant-numeric:tabular-nums}
+.memos-workspace .memo-slot-time{font-size:12px;color:var(--memo-muted);font-variant-numeric:tabular-nums}

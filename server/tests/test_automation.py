@@ -110,6 +110,7 @@ def test_bounded_batches_cover_all_items():
     assert all(len(json.dumps({'expenses':c},ensure_ascii=False,separators=(',',':')).encode())<=24000 for c in chunks)
 
 def test_push_dedup_and_expired(setup):
+    from urllib.parse import parse_qs,urlsplit
     path,c,w,m,clock,a,b,p=setup
     pending=seed(c);enable(c)
     # Legacy unrated record keeps the weekly reminder/expiry path meaningful.
@@ -118,7 +119,22 @@ def test_push_dedup_and_expired(setup):
     endpoint='https://fcm.googleapis.com/fake-test'
     assert c.post('/api/push-subscriptions',json={'endpoint':endpoint,'keys':{'p256dh':'abc','auth':'def'}}).status_code==200
     finish(w,clock);w.tick();assert len(p.calls)==1
-    assert p.calls[0][1]=={'title':'同在','body':'你有待办，请打开同在','url':'/'}
+    payload=p.calls[0][1]
+    assert set(payload)=={'title','body','kind','url'}
+    assert {key:payload[key] for key in ('title','body','kind')}=={'title':'同在','body':'月度复盘已生成，请打开查看','kind':'monthly_report'}
+    report=c.get('/api/reports').json()['reports'][0]
+    with connect(path) as db:
+        outbox=db.execute('SELECT id FROM notification_outbox WHERE user_id=? AND report_id=? AND data_version=?',(a['id'],report['id'],report['data_version'])).fetchone()
+        restore_id=db.execute('SELECT restore_id FROM app_state WHERE singleton=1').fetchone()[0]
+        epoch=db.execute('SELECT relation_epoch FROM family_members WHERE user_id=? AND family_id=? AND active=1',(a['id'],c.headers['X-Family-Id'])).fetchone()[0]
+    assert outbox is not None
+    url=urlsplit(payload['url'])
+    assert (url.scheme,url.netloc,url.path,url.fragment)==('','','/','')
+    assert parse_qs(url.query,keep_blank_values=True,strict_parsing=True)=={
+        'notification':[outbox['id']],'kind':['monthly_report'],'scope':['shared'],
+        'family_id':[c.headers['X-Family-Id']],'user_id':[a['id']],
+        'restore_id':[restore_id],'relation_epoch':[str(epoch)],
+    }
     assert c.put('/api/settings',json={'weekly':{'enabled':True,'weekday':6,'time':'19:00'}}).status_code==200
     p.error=410;clock[0]+=timedelta(seconds=301);w.tick()
     assert c.get('/api/settings').json()['push_subscription_state']=='expired'
@@ -292,8 +308,11 @@ def test_many_long_refunds_keep_model_input_bounded_and_report_detail_complete(s
 
 def test_preparation_failure_parks_one_task_and_allows_notifications_and_other_report(setup):
     from server.automation.worker import model_expense
+    from urllib.parse import parse_qs,urlsplit
     path,c,w,m,clock,a,b,p=setup
-    shared=seed(c);seed(c,'private');enable(c)
+    shared=seed(c)
+    private=seed(c,'private',purpose='PRIVATE_PURPOSE_仅本人可见',amount_cents=9876543,rating=1,rating_reason='PRIVATE_REASON_不要显示在通知')
+    enable(c)
     c.put('/api/settings',json={'weekly':{'enabled':True,'weekday':6,'time':'19:00'}})
     c.post('/api/push-subscriptions',json={'endpoint':'https://fcm.googleapis.com/prep-test','keys':{'p256dh':'abc','auth':'def'}})
     clock[0]=datetime(2026,10,4,13,tzinfo=UTC)
@@ -303,8 +322,27 @@ def test_preparation_failure_parks_one_task_and_allows_notifications_and_other_r
     with patch('server.automation.worker.model_expense',broken_one):
         for _ in range(5):w.tick()
     assert c.get('/api/reports').json()['reports'][0]['status']=='failed'
-    assert c.get('/api/reports?scope=private').json()['reports'][0]['status']=='ready'
-    assert p.calls and all('private' not in json.dumps(payload) for _,payload in p.calls)
+    private_report=c.get('/api/reports?scope=private').json()['reports'][0]
+    assert private_report['status']=='ready'
+    detail=c.get('/api/reports/'+private_report['id']).json()
+    assert len(p.calls)==1
+    payload=p.calls[0][1]
+    assert set(payload)=={'title','body','kind','url'}
+    assert {key:payload[key] for key in ('title','body','kind')}=={'title':'同在','body':'月度复盘已生成，请打开查看','kind':'monthly_report'}
+    human_text=payload['title']+' '+payload['body']
+    for sensitive in (private['purpose'],str(private['amount_cents']),'98765.43',private['rating_reason'],detail['content']['summary'],a['id'],a['username'],a['display_name'],b['id'],b['username'],b['display_name']):
+        assert sensitive not in human_text
+    with connect(path) as db:
+        outbox=db.execute('SELECT id FROM notification_outbox WHERE user_id=? AND report_id=? AND data_version=?',(a['id'],private_report['id'],private_report['data_version'])).fetchone()
+        restore_id=db.execute('SELECT restore_id FROM app_state WHERE singleton=1').fetchone()[0]
+    assert outbox is not None
+    url=urlsplit(payload['url'])
+    assert (url.scheme,url.netloc,url.path,url.fragment)==('','','/','')
+    # The private scope is a protocol enum; no content or arbitrary query fields may accompany it.
+    assert parse_qs(url.query,keep_blank_values=True,strict_parsing=True)=={
+        'notification':[outbox['id']],'kind':['monthly_report'],'scope':['private'],
+        'family_id':['none'],'user_id':[a['id']],'restore_id':[restore_id],'relation_epoch':['0'],
+    }
     assert len(m.calls)==2
     with connect(path) as db:
         task=db.execute('SELECT * FROM report_tasks').fetchone()

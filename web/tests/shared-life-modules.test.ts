@@ -39,13 +39,17 @@ test('日程缓存仅按原记录版本显示；迟到旧版本不盖新日期�
  const{store,privateSource}=await setup(),record:MemoRecord={id:'schedule',kind:'schedule',scope:'private',family_id:null,author_id:user.id,updated_by:user.id,category_id:null,title:'跨日循环',body_markdown:'',attachments:[],completed:false,version:2,created_at:'now',updated_at:'now',schedule:{start_date:'2026-11-04',end_date:'2026-11-06',start_time:'22:30',end_time:'00:00'},recurrence:{frequency:'daily',interval:1,calendar:'solar',start_date:'2026-11-04',until:null,lunar_month:null,lunar_day:null,lunar_leap:false}}
  await store.memoSnapshot(user.id,{source:privateSource,categories:[],memos:[record],attachments:[],users:[user]},privateSource)
  const first={memo_id:record.id,record_version:2,date:'2026-11-05',start_date:'2026-11-04',end_date:'2026-11-06',start_time:'22:30',end_time:'00:00'},second={...first,start_date:'2026-11-05',end_date:'2026-11-07'}
- await store.memoCalendar(user.id,privateSource,'2026-11',{source:privateSource,versions:{schedule:2},occurrences:[first,second]});const p=await store.memoRead(user.id,privateSource),view=memoRecordViews(p,Date.parse('2026-11-05T12:00:00+08:00'))[0] as ScheduleView
+ await store.memoCalendar(user.id,privateSource,'2026-11',{source:privateSource,versions:{schedule:2},occurrences:[first,second]});const p=await store.memoRead(user.id,privateSource),view=memoRecordViews(p)[0] as ScheduleView
  const occurrences=schedulesForDay([view],'2026-11-05');expect(occurrences).toHaveLength(2);expect(occurrences.map(r=>r.id)).toEqual(['schedule','schedule']);expect(new Set(occurrences.map(r=>r.occurrence_key)).size).toBe(2)
  const merged=mergeCalendarCache(p.calendar!['2026-11'],{source:privateSource,versions:{schedule:1},occurrences:[{...first,record_version:1,date:'2026-11-08'}]});expect(merged.versions.schedule).toBe(2);expect(merged.occurrences.map(o=>o.date)).toEqual(['2026-11-05','2026-11-05'])
- await store.memoSnapshot(user.id,{source:privateSource,categories:[],memos:[{...record,version:3}],attachments:[],users:[user]},privateSource);expect(schedulesForDay([memoRecordViews(await store.memoRead(user.id,privateSource),Date.parse('2026-11-05T12:00:00+08:00'))[0] as ScheduleView],'2026-11-05')).toEqual([])
+ await store.memoSnapshot(user.id,{source:privateSource,categories:[],memos:[{...record,version:3}],attachments:[],users:[user]},privateSource);expect(schedulesForDay([memoRecordViews(await store.memoRead(user.id,privateSource))[0] as ScheduleView],'2026-11-05')).toEqual([])
 })
 test('通知URL只接受本源根路径、精确UUID和匹配的私人/家庭来源参数',()=>{
  const origin='https://fictional.example',id=crypto.randomUUID(),userId=crypto.randomUUID(),restore=crypto.randomUUID(),family=crypto.randomUUID(),url=`/?notification=${id}&scope=shared&family_id=${family}&user_id=${userId}&restore_id=${restore}&relation_epoch=2`
+ expect(parseNotificationIntent(url+'&kind=weekly_review',origin)?.kind).toBe('weekly_review')
+ expect(parseNotificationIntent(url+'&kind=monthly_report',origin)?.kind).toBe('monthly_report')
+ expect(parseNotificationIntent(url+'&kind=other',origin)).toBeUndefined()
+ expect(parseNotificationIntent(url+'&kind=weekly_review&kind=monthly_report',origin)).toBeUndefined()
  expect(parseNotificationIntent(url,origin)?.source.family_id).toBe(family);expect(parseNotificationIntent(url.replace('scope=shared','scope=private'),origin)).toBeUndefined();expect(parseNotificationIntent(url+'&user_id='+userId,origin)).toBeUndefined();expect(parseNotificationIntent(url.replace('relation_epoch=2','relation_epoch=0'),origin)).toBeUndefined()
  for(const value of ['//evil.example/', '/\\evil.example/','https://evil.example/','javascript:alert(1)','/api/context',origin.replace('https://','https://user:password@')+'/'])expect(safeNotificationUrl(value,origin)).toBeUndefined()
  expect(parseNotificationIntent(`/?notification=${id}&scope=private&family_id=none&user_id=${userId}&restore_id=${restore}&relation_epoch=0`,origin)?.source.scope).toBe('private')

@@ -450,7 +450,8 @@ class JournalRunner(Runner):
 
 
 class ResumeTests(unittest.TestCase):
-    def test_success_and_completed_resume_never_repeat_backup_or_switch(self):
+    @patch('release.runner.subprocess.run', return_value=subprocess.CompletedProcess([], 0, b'{"status":"ok"}'))
+    def test_success_and_completed_resume_never_repeat_backup_or_switch(self, invoke):
         with tempfile.TemporaryDirectory() as temporary:
             runner = JournalRunner(temporary)
             self.assertEqual(runner.execute()['status'], 'deployed')
@@ -459,6 +460,7 @@ class ResumeTests(unittest.TestCase):
             self.assertEqual(runner.execute()['status'], 'deployed')
             self.assertFalse([x for x in runner.calls if x[0] == 'operation'])
             self.assertEqual(runner.calls[0], ('query', 'journal'))
+            self.assertEqual(invoke.call_count, 2 * len(runner.c['https_routes']))
 
     def test_unknown_backup_or_upload_fail_closed_before_writing(self):
         for stage in ('upload', 'backup'):
@@ -503,6 +505,104 @@ class ResumeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary, patch('release.runner.subprocess.run') as invoke:
             result = Runner(config(), manifest(), temporary).plan()
             self.assertEqual(result['network'], 'none');invoke.assert_not_called()
+
+
+class HttpsPreflightTests(unittest.TestCase):
+    def test_route_failure_stops_before_any_remote_write_or_release_operation(self):
+        failures = [(28, b'', b'private curl error'), (0, b'not JSON', b''),
+                    (0, b'{"status":"down"}', b''), (0, b'{"status":"ok","extra":true}', b'')]
+        for failed_route in range(len(config()['https_routes'])):
+            for returncode, stdout, stderr in failures:
+                with self.subTest(route=failed_route, returncode=returncode, stdout=stdout), \
+                     tempfile.TemporaryDirectory() as temporary:
+                    runner = JournalRunner(temporary)
+                    results = [subprocess.CompletedProcess([], 0, b'{"status":"ok"}') for _ in range(failed_route)]
+                    results.append(subprocess.CompletedProcess([], returncode, stdout, stderr))
+                    with patch('release.runner.subprocess.run', side_effect=results) as invoke:
+                        with self.assertRaisesRegex(ReleaseError, 'environment prerequisite not met') as error:
+                            runner.execute()
+                    self.assertIn('no remote writes performed', str(error.exception))
+                    self.assertNotIn('private curl error', str(error.exception))
+                    self.assertEqual(runner.calls, [('query', 'journal')])
+                    self.assertEqual(runner.j, {})
+                    self.assertFalse(runner.locked)
+                    self.assertEqual(invoke.call_count, failed_route + 1)
+
+    def test_success_checks_every_route_before_owner_and_keeps_stage_order(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            runner = JournalRunner(temporary)
+            def curl(argv, **kwargs):
+                self.assertNotIn(('owner', 'init'), runner.calls)
+                self.assertFalse([v for v in runner.calls if v[0] == 'operation'])
+                return subprocess.CompletedProcess(argv, 0, b'{"status":"ok"}')
+            with patch('release.runner.subprocess.run', side_effect=curl) as invoke:
+                self.assertEqual(runner.execute()['status'], 'deployed')
+            self.assertEqual(invoke.call_count, len(runner.c['https_routes']))
+            self.assertEqual([v for k, v in runner.calls if k == 'operation'], list(STAGES))
+
+    def test_plan_and_status_do_not_probe_https(self):
+        with tempfile.TemporaryDirectory() as temporary, patch('release.runner.subprocess.run') as invoke:
+            runner = JournalRunner(temporary)
+            self.assertEqual(runner.plan()['network'], 'none')
+            self.assertEqual(runner.status()['status'], 'queried')
+            invoke.assert_not_called()
+            self.assertEqual(runner.calls, [('query', 'journal')])
+
+    def test_completed_resume_and_missing_curl_fail_before_remote_writes(self):
+        for completed in (False, True):
+            with self.subTest(completed=completed), tempfile.TemporaryDirectory() as temporary:
+                runner = JournalRunner(temporary)
+                if completed:
+                    runner.current = 'candidate'
+                    runner.j = {stage: {'status': 'done', 'proof': {}} for stage in STAGES}
+                original = copy.deepcopy(runner.j)
+                with patch('release.runner.subprocess.run', side_effect=FileNotFoundError('private executable detail')):
+                    with self.assertRaisesRegex(ReleaseError, 'environment prerequisite not met') as error:
+                        runner.execute()
+                self.assertNotIn('private executable detail', str(error.exception))
+                self.assertEqual(runner.calls, [('query', 'journal')])
+                self.assertEqual(runner.j, original)
+
+    def test_execute_does_not_retry_unknown_upload_or_backup_after_preflight(self):
+        for unknown in ('upload', 'backup'):
+            with self.subTest(stage=unknown), tempfile.TemporaryDirectory() as temporary:
+                runner = JournalRunner(temporary)
+                runner.j = {stage: {'status': 'done', 'proof': {}} for stage in STAGES[:STAGES.index(unknown)]}
+                runner.j[unknown] = {'status': 'started'}
+                original = copy.deepcopy(runner.j)
+                with patch('release.runner.subprocess.run', return_value=subprocess.CompletedProcess([], 0, b'{"status":"ok"}')):
+                    with self.assertRaisesRegex(ReleaseError, 'Unknown result for ' + unknown):
+                        runner.execute()
+                self.assertEqual(runner.j, original)
+                self.assertFalse([v for v in runner.calls if v[0] == 'operation'])
+
+    def test_post_switch_keeps_health_and_all_resource_hashes_with_identical_route_parameters(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            runner = JournalRunner(temporary);runner.current = 'candidate'
+            runner.m['runtime'] = {'index.html': sha(b'html'), 'assets/lazy.js': sha(b'lazy')}
+            runner.c['https_routes'] = [
+                {'name': 'bound', 'origin': 'https://example.test:444/', 'address': '192.0.2.5', 'interface': 'en0'},
+                {'name': 'unbound', 'origin': 'https://other.test', 'address': '192.0.2.6'}]
+            calls = []
+            def curl(argv, **kwargs):
+                calls.append(argv)
+                content = b'html' if argv[-1].endswith('/index.html') else b'lazy' if argv[-1].endswith('/assets/lazy.js') else b'{"status":"ok"}'
+                return subprocess.CompletedProcess(argv, 0, content)
+            with patch('release.runner.subprocess.run', side_effect=curl):
+                runner.https_preflight()
+                result = Runner.verify(runner)
+            self.assertEqual(result['https_checks'], 6)
+            for index, route in enumerate(runner.c['https_routes']):
+                expected = ['curl', '--silent', '--show-error', '--fail', '--noproxy', '*', '--connect-timeout', '8',
+                            '--max-time', '20', '--resolve',
+                            'example.test:444:192.0.2.5' if index == 0 else 'other.test:443:192.0.2.6']
+                if index == 0: expected += ['--interface', 'en0']
+                expected += [route['origin'].rstrip('/') + '/api/health']
+                self.assertEqual(calls[index], expected)
+                self.assertEqual(calls[2 + index * 3], expected)
+            with patch('release.runner.subprocess.run', return_value=subprocess.CompletedProcess([], 0, b'{"status":"ok"}')):
+                with self.assertRaisesRegex(ReleaseError, 'resource/health mismatch'):
+                    Runner.verify(runner)
 
 
 if __name__ == '__main__':

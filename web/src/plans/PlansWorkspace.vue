@@ -19,6 +19,7 @@ const emit=defineEmits<{back:[];command:[command:PlanCommand];focus:[command:Pla
 type Editor=PlanEditorDraft
 const tab=ref<'wish'|'plan'>('wish'),selected=ref(''),taskId=ref(''),creator=ref('all'),archived=ref(false),editor=ref<Editor>(),editorSource=ref<Source>(),pending=ref(''),operationError=ref(''),notice=ref(''),nativeComposing=ref(false),editorComposing=ref(false),heading=ref<HTMLElement>(),deleteReason=ref(''),deleteDialog=ref(false)
 const aiOpen=ref(false),aiInputDrafts=ref<Record<string,AiInputDraft>>({}),adoptionTarget=ref('')
+const aiWorkspaceRef=ref<{updateBlocked:boolean}>()
 const aiDraftKey=computed(()=>sourceKey(props.source)+':'+(record.value?.id??''))
 function aiDraftChanged(value:{source:Source;record_id:string;draft:AiInputDraft}){aiInputDrafts.value[sourceKey(value.source)+':'+value.record_id]={...value.draft,attachment_ids:[...value.draft.attachment_ids]}}
 function aiAdopted(value:{source:Source;plan_id:string}){if(!sameSource(value.source,props.source))return;aiOpen.value=false;selected.value=value.plan_id;taskId.value='';adoptionTarget.value=value.plan_id;notice.value='已采纳，正在同步正式计划…';emit('ai-adopted',value)}
@@ -66,7 +67,8 @@ function openTarget(id:string):boolean{
 }
 function resetNavigation(){navigationEpoch++;aiOpen.value=false;adoptionTarget.value='';tab.value='wish';selected.value='';taskId.value='';editor.value=undefined;editorSource.value=undefined;deleteDialog.value=false;deleteOpener=null;creator.value='all';archived.value=false;operationError.value='';notice.value=''}
 const restorableDraft=computed(()=>props.writable && props.initialDraft && sameSource(props.initialDraft.source,props.source)?props.initialDraft:undefined)
-defineExpose({openTarget,resetNavigation})
+const updateBlocked=computed(()=>!!editor.value||!!pending.value||!!aiWorkspaceRef.value?.updateBlocked||deleteDialog.value||Object.values(aiInputDrafts.value).some(draft=>!!draft.content||draft.attachment_ids.length>0||!!draft.pending_request&&!draft.pending_input?.acknowledged))
+defineExpose({openTarget,resetNavigation,updateBlocked})
 function cancel(){if(pending.value)return;if(editorSource.value)emit('draft-change',{source:{...editorSource.value},dirty:false,draft:null});editor.value=undefined;editorSource.value=undefined;operationError.value='';focusHeading()}
 function send(operation:PlanOperation,blobs?:PlanCommand['blobs']){if(!props.writable||pending.value)return;pending.value=operation.op_id;submitted=operation;operationError.value='';emit('command',{request_id:operation.op_id,source:{...props.source},operation,blobs})}
 function mutate(entity:PlanOperation['entity_type'],item:{id:string;version:number},kind:string,data:Record<string,unknown>){send({op_id:crypto.randomUUID(),entity_type:entity,entity_id:item.id,base_version:item.version,kind,data})}
@@ -126,7 +128,7 @@ watch(editor,value=>{if(value && editorSource.value && sameSource(value.source,e
 
 <template>
 <section class="plans-workspace" aria-label="愿望与计划">
- <PlanAiWorkspace v-if="aiOpen && record" :key="aiDraftKey" :source="source" :record="record" :target-plan="record.kind==='plan'?record:records.find(p=>p.source_wish_id===record!.id && p.kind==='plan')" :users="snapshot.users" :input-draft="aiInputDrafts[aiDraftKey]" :writable="writable" @close="aiOpen=false" @draft-change="aiDraftChanged" @adopted="aiAdopted" @edit-materials="aiEditMaterials" />
+ <PlanAiWorkspace ref="aiWorkspaceRef" v-if="aiOpen && record" :key="aiDraftKey" :source="source" :record="record" :target-plan="record.kind==='plan'?record:records.find(p=>p.source_wish_id===record!.id && p.kind==='plan')" :users="snapshot.users" :input-draft="aiInputDrafts[aiDraftKey]" :writable="writable" @close="aiOpen=false" @draft-change="aiDraftChanged" @adopted="aiAdopted" @edit-materials="aiEditMaterials" />
  <template v-else>
  <header class="wp-head" :class="{ 'is-root': !selected && !editor }"><div v-if="selected || editor" class="wp-head-meta"><button type="button" class="wp-back" :disabled="!!pending" @click="back">‹ 返回</button></div><div class="wp-head-copy"><h2 ref="heading" tabindex="-1">{{ headingText }}</h2></div><button v-if="!editor && !selected && writable" class="wp-add" :disabled="!!pending" @click="start(tab)">＋ 新建</button><button v-else-if="!editor && current && writable && !record?.archived" class="wp-add" :disabled="!!pending" @click="start(task ? 'task' : record!.kind,current)">编辑</button></header>
  <p v-if="error || operationError" class="wp-error" role="alert">{{ error || operationError }}</p><p v-if="loading" class="wp-muted" role="status">正在读取本机记录…</p>

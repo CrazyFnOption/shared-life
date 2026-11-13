@@ -26,6 +26,9 @@ def dates(rule,start,end):
     end=min(end,until);start=max(start,origin)
     if start>end:return []
     interval=rule['interval'];frequency=rule['frequency'];result=[]
+    if frequency=='weekly' and rule.get('weekdays'):
+        week_origin=origin-timedelta(days=origin.isoweekday()-1)
+        return [start+timedelta(days=n) for n in range((end-start).days+1) if (start+timedelta(days=n)).isoweekday() in rule['weekdays'] and ((start+timedelta(days=n)-week_origin).days//7)%interval==0]
     if frequency in ('daily','weekly'):
         step=interval*(7 if frequency=='weekly' else 1)
         first=max(0,((start-origin).days+step-1)//step)
@@ -36,8 +39,9 @@ def dates(rule,start,end):
         count=(end.year-origin.year)*12+end.month-origin.month
         for n in range(first,count//interval+1):
             year,month=divmod(origin.year*12+origin.month-1+n*interval,12);month+=1
-            candidate=date(year,month,min(origin.day,monthrange(year,month)[1]))
-            if start<=candidate<=end:result.append(candidate)
+            for day in rule.get('month_days') or [origin.day]:
+                candidate=date(year,month,min(day,monthrange(year,month)[1]))
+                if start<=candidate<=end:result.append(candidate)
     elif rule['calendar']=='solar':
         for year in range(origin.year,end.year+1,interval):
             candidate=date(year,origin.month,min(origin.day,monthrange(year,origin.month)[1]))
@@ -50,7 +54,7 @@ def dates(rule,start,end):
             solar=Lunar.fromYmd(year,lunar_month.getMonth(),min(rule['lunar_day'],lunar_month.getDayCount())).getSolar()
             candidate=date(solar.getYear(),solar.getMonth(),solar.getDay())
             if start<=candidate<=end:result.append(candidate)
-    return result
+    return sorted(set(result))
 
 
 def record_dates(record,start,end):
@@ -77,13 +81,14 @@ def schedule_occurrences(record,start,end):
     return result
 
 
-def reminder_occurrences(record,start,end,effective_from=None):
-    """Project reminder clocks, preserving the legacy planned occurrence key."""
+def reminder_instances(record,start,end,effective_from=None,include_completed=False):
+    """One expansion shared by calendar, current targets and durable events."""
     if record.get('deleted'):return []
     completed_cycle=bool(record.get('completed') and record.get('recurrence') and record.get('completed_at'))
     if (record.get('archived') or record.get('completed')) and not completed_cycle:return []
-    recurrence=record.get('recurrence');schedule=record.get('schedule');result=[];seen=set()
+    recurrence=record.get('recurrence');schedule=record.get('schedule');result=[]
     archived={item['start_date'] for item in record.get('archived_occurrences',[]) if item.get('archived_at')}
+    finished={item['occurrence_at'] for item in record.get('reminder_occurrences',[]) if item.get('archived_at')}
     for rule in record.get('reminders',[]):
         if rule['mode']=='relative' and not schedule:continue
         initial=reminder_time(rule,schedule)
@@ -91,13 +96,41 @@ def reminder_occurrences(record,start,end,effective_from=None):
         shift=initial.date()-origin
         planned=dates(recurrence,start-shift,end-shift) if recurrence else [origin]
         for day in planned:
-            if record['kind']=='schedule' and day.isoformat() in archived:continue
+            if record['kind']=='schedule' and len(record.get('reminders',[]))<=1 and day.isoformat() in archived:continue
             when=initial+timedelta(days=(day-origin).days)
             if effective_from and when<effective_from[rule['id']]:continue
             if completed_cycle and when.date()<=local_time(record['completed_at']).date():continue
-            if not start<=when.date()<=end or when.isoformat() in seen:continue
-            seen.add(when.isoformat())
+            if not start<=when.date()<=end or not include_completed and when.isoformat() in finished:continue
             result.append({'memo_id':record['id'],'record_version':record['version'],'date':when.date().isoformat(),
                            'start_date':when.date().isoformat(),'start_time':when.strftime('%H:%M'),
-                           'end_date':None,'end_time':None,'reminder_id':rule['id'],'occurrence_date':day.isoformat()})
+                           'end_date':None,'end_time':None,'reminder_id':rule['id'],'occurrence_date':day.isoformat(),'occurrence_at':when.isoformat()})
+    return sorted(result,key=lambda item:(item['occurrence_at'],item['reminder_id']))
+
+
+def reminder_occurrences(record,start,end,effective_from=None):
+    seen=set();result=[]
+    for item in reminder_instances(record,start,end,effective_from):
+        if item['occurrence_at'] not in seen:result.append(item);seen.add(item['occurrence_at'])
     return result
+
+
+def current_occurrence(record,now,effective_from=None):
+    """Missed cycles merge into the latest pending occurrence of each clock."""
+    recurrence=record.get('recurrence')
+    span={'daily':1,'weekly':7,'monthly':32,'yearly':366}[recurrence['frequency']]*(recurrence['interval']+1) if recurrence else 0
+    pivot=max(now.date(),date.fromisoformat(recurrence['start_date'])) if recurrence else now.date()
+    if recurrence and recurrence.get('until'):pivot=min(pivot,date.fromisoformat(recurrence['until']))
+    start=max(date(1901,1,1),pivot-timedelta(days=span)) if recurrence else date(1901,1,1)
+    end=min(date(2099,12,31),pivot+timedelta(days=span)) if recurrence else date(2099,12,31)
+    items=reminder_instances(record,start,end,effective_from,include_completed=True)
+    finished={item['occurrence_at'] for item in record.get('reminder_occurrences',[]) if item.get('archived_at')}
+    latest={};future={}
+    for item in items:
+        if item['date']<=now.date().isoformat():latest[item['reminder_id']]=item
+        elif item['reminder_id'] not in future and item['occurrence_at'] not in finished:future[item['reminder_id']]=item
+    candidates=[item if item['occurrence_at'] not in finished else future.get(identity) for identity,item in latest.items()]
+    candidates=[item for item in candidates if item is not None and item['occurrence_at'] not in finished]
+    candidates.extend(item for identity,item in future.items() if identity not in latest and item['occurrence_at'] not in finished)
+    due=[item for item in candidates if local_time(item['occurrence_at'])<=now]
+    candidates=due or candidates
+    return min(candidates,key=lambda item:(item['occurrence_at'],item['reminder_id'])) if candidates else None

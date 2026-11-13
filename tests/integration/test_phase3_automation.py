@@ -189,6 +189,8 @@ def test_scheduler_respects_first_sunday_no_current_month_and_catches_up_after_r
 
 def test_report_inputs_are_scope_isolated_minimal_and_null_rating_is_preserved(env):
     shared = add(env["a"], purpose="SHARED-visible")
+    # New records default to 3; explicitly retain the legacy/unrated null case.
+    shared = submit(env["a"], action(shared, "review", rating=None, rating_reason=""))["expense"]
     own = add(env["a"], scope="private", purpose="ALICE-private-only")
     foreign = add(env["b"], scope="private", purpose="BOB-private-only")
     enable(env)

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { version as appVersion } from '../package.json'
+import { appUpdateReady, appUpdateError, appInputActive, applyAppUpdate, checkAppUpdate, configureAppUpdates, rememberUpdateSource, takeUpdateSource } from './appUpdates'
 import PlansWorkspace from './plans/PlansWorkspace.vue'
 import { taskReference, taskCompleteOperation } from './plans/domain'
 import type { PlanFocusCommand } from './plans/types'
@@ -91,11 +92,11 @@ const memoCalendarViews=computed(()=>reminderCalendarViews(memoCurrent.value,mem
 const memoCategories=computed(()=>{const p=memoCurrent.value,order=p?.local_category_order?.category_ids??[];return p?.local_categories.map((category,index)=>({id:category.id,name:category.name,version:category.version,position:order.includes(category.id)?order.indexOf(category.id):order.length+index}))??[]})
 const memoMembers=computed(()=>account.value?.source?.scope==='shared'?account.value.family?.members??[]:account.value?[account.value.user]:[])
 const focusedPlanTasks=computed<MemoView[]>(()=>{const snapshot=planSnapshot.value;if(!snapshot)return[];return(memoCurrent.value?.local_focus?.targets??[]).flatMap((target,index)=>{if(target.kind!=='plan_task')return[];const task=taskReference(snapshot,target.id);if(!task||task.completed)return[];return[{id:task.id,version:task.version,kind:'memo' as const,origin:'plan_task' as const,title:task.title,created_at:task.created_at,body:task.body_markdown,creator_id:task.author_id,creator_name:snapshot.users.find(u=>u.id===task.author_id)?.display_name??'原记录人',attachments:[],category_id:'',completed:task.completed,focused:true,focus_position:index}]})})
-const memosWorkspaceRef=ref<{openTarget:(id:string,fromHome?:boolean)=>boolean;openNew:(fromHome?:boolean)=>boolean;resetNavigation:()=>void}>()
-const plansWorkspaceRef=ref<{openTarget:(id:string,fromHome?:boolean)=>boolean;openNew:(fromHome?:boolean)=>boolean;resetNavigation:()=>void}>()
+const memosWorkspaceRef=ref<{openTarget:(id:string,fromHome?:boolean)=>boolean;openNew:(fromHome?:boolean)=>boolean;resetNavigation:()=>void;updateBlocked:boolean}>()
+const plansWorkspaceRef=ref<{openTarget:(id:string,fromHome?:boolean)=>boolean;openNew:(fromHome?:boolean)=>boolean;resetNavigation:()=>void;updateBlocked:boolean}>()
 async function homeNewMemo(){navigate('/memos');await nextTick();if(memoDraft.value){message.value='请先继续或取消未保存的备忘草稿。';return}memosWorkspaceRef.value?.openNew(true)}
 async function homeOpenMemo(item:MemoRecordView){if(item.kind==='memo'&&item.origin==='plan_task'){await openPlanTask(item.id);return}navigate('/memos');await nextTick();if(!memosWorkspaceRef.value?.openTarget(item.id,true))message.value='请先保存或取消当前备忘编辑。'}
-async function homeCompleteMemo(item:MemoRecordView){const source=account.value?.source;if(!source)return;if(item.kind==='memo'&&item.origin==='plan_task'){const result=await completePlanTask(item.id);if(result?.status==='error')message.value=result.error??'完成状态未保存，请重试。';return}await memoCompleted({request_id:crypto.randomUUID(),source:{...source},record_id:item.id,base_version:item.version,completed:true});if(memoResult.value?.status==='error')message.value=memoResult.value.error??'完成状态未保存，请重试。'}
+async function homeCompleteMemo(item:MemoRecordView){const source=account.value?.source;if(!source)return;if(item.kind==='memo'&&item.origin==='plan_task'){const result=await completePlanTask(item.id);if(result?.status==='error')message.value=result.error??'完成状态未保存，请重试。';return}await memoCompleted({request_id:crypto.randomUUID(),source:{...source},record_id:item.id,base_version:item.version,completed:true,...(item.recurrence&&item.current_occurrence_at?{occurrence_at:item.current_occurrence_at}:{})});if(memoResult.value?.status==='error')message.value=memoResult.value.error??'完成状态未保存，请重试。'}
 async function homeQuickExpense(){navigate('/accounting');await nextTick();openForm(tab.value)}
 async function memoOperation(command:MemoOperationCommand){const id=userId.value,epoch=generation;if(!id||memoBusy.value)return;memoBusy.value=true;try{await store.memoSave(id,command.source,command.operation);await refresh();signal();if(id===userId.value&&epoch===generation)memoResult.value={request_id:command.request_id,source:command.source,status:'saved',record_id:command.operation.entity_id};void sync()}catch(error){if(id===userId.value&&epoch===generation)memoResult.value={request_id:command.request_id,source:command.source,status:'error',error:error instanceof Error?error.message:'未保存，输入保留。'}}finally{memoBusy.value=false}}
 function focusOperation(source:Source,target:FocusTarget,focused:boolean,requestId:string=crypto.randomUUID()):MemoOperation{const focus=memoPartition.value?.local_focus;if(!focus||!sameSource(memoPartition.value?.source,source))throw new Error('请先联网核对当前关注列表。');const targets=focus.targets.filter(t=>t.kind!==target.kind||t.id!==target.id);if(focused)targets.push(target);return{op_id:requestId,entity_type:'focus',entity_id:focus.id,kind:'update',base_version:focus.version,data:{targets}}}
@@ -124,7 +125,7 @@ async function memoCategoryCreated(command:MemoCategoryCommand){const id=userId.
  await store.memoSave(id,command.source,{op_id:command.request_id,entity_type:'category',entity_id:crypto.randomUUID(),kind:'create',base_version:0,data:{name:command.name}});await refresh();signal();memoResult.value={...command,status:'saved'};void sync()
 }catch(error){memoResult.value={...command,status:'error',error:error instanceof Error?error.message:'分类未保存。'}}finally{memoBusy.value=false}}
 async function memoCompleted(command:MemoCompleteCommand){const id=userId.value;if(!id||memoBusy.value)return;memoBusy.value=true;try{
- await store.memoSave(id,command.source,{op_id:command.request_id,entity_type:'memo',entity_id:command.record_id,kind:'complete',base_version:command.base_version,data:{completed:command.completed}});await refresh();signal();memoResult.value={...command,status:'saved'};void sync()
+ await store.memoSave(id,command.source,{op_id:command.request_id,entity_type:'memo',entity_id:command.record_id,kind:'complete',base_version:command.base_version,data:{completed:command.completed,...(command.occurrence_at?{occurrence_at:command.occurrence_at}:{})}});await refresh();signal();memoResult.value={...command,status:'saved'};void sync()
 }catch(error){memoResult.value={...command,status:'error',error:error instanceof Error?error.message:'状态未保存。'}}finally{memoBusy.value=false}}
 async function memoAttachmentRequested(command:MemoCommandOrigin&{record_id:string;attachment:MemoAttachmentView}){
  const id=userId.value,epoch=generation;if(!id)return
@@ -176,9 +177,11 @@ watch(()=>account.value?.source?sourceKey(account.value.source):'',()=>{inboxReq
 watch(inboxOpen,open=>{if(open){inboxMessages.value=memoPartition.value?.messages??[];void loadInbox()}})
 async function changeInboxIgnored(ignored:boolean){inboxIgnored.value=ignored;await loadInbox()}
 async function ignoreMessage(item:MemoMessage,restore=false){const id=userId.value,source=account.value?.source;if(!id||!source||inboxBusy.value||!sameSource(item.source,source))return;inboxBusy.value=true;inboxError.value='';try{await store.verifySource(id,source);await memoApi.ignore(id,source,item.id,restore);await store.verifySource(id,source);await loadInbox();await sync()}catch(error){inboxError.value=error instanceof Error?error.message:'消息操作未确认，请联网重试。'}finally{inboxBusy.value=false}}
-async function openMessage(item:MemoMessage){const id=userId.value,source=account.value?.source;if(!id||!source||inboxBusy.value||!sameSource(item.source,source))return;inboxBusy.value=true;inboxError.value='';try{
+function notificationHasInputs(){return financialInputsBusy.value||hasUnsavedFinancialInputs.value||!!form.value||!!refundForm.value||!!requestForm.value||Object.keys(memoDrafts.value).length>0||Object.keys(planDrafts.value).length>0||!!memosWorkspaceRef.value?.updateBlocked||!!plansWorkspaceRef.value?.updateBlocked||!!familyPanelRef.value?.hasUnsavedChanges||route.value==='/settings/account'||appInputActive.value}
+async function openMessage(item:MemoMessage,resolvedReport=false,notice=''){const id=userId.value,source=account.value?.source;if(!id||!source||inboxBusy.value||!sameSource(item.source,source))return;if(notificationHasInputs()){message.value='请先保存或取消当前输入，再打开这条消息。';return}inboxBusy.value=true;inboxError.value='';try{
  await sync();await store.verifySource(id,source);if(!sameSource(account.value?.source,source))return
- const latest=await memoApi.messages(id,source,true),live=latest.messages.find(m=>m.id===item.id);if(!live)throw new Error('这条消息已处理或不再可访问。')
+ const latest=await memoApi.messages(id,source,true),live=latest.messages.find(m=>m.id===item.id)??(resolvedReport&&item.kind==='monthly_report'?item:undefined);if(!live)throw new Error('这条消息已处理或不再可访问。')
+ if(live.kind==='monthly_report'||live.kind==='weekly_review'){navigate('/accounting');reviewOpen.value=false;reviewTarget.value={tab:live.kind==='monthly_report'?'reports':'weekly',reportId:live.kind==='monthly_report'?live.target_id:undefined,notice};await nextTick();reviewOpen.value=true;return}
  if(live.target_type==='family_invite'){openFamily('received');return}
  if(live.target_type==='expense_change_request'||live.target_type==='expense_category_change'){if(!openFinancialRequests())throw new Error('请先保存或取消当前输入，再查看这条消息。');await nextTick();if(live.target_type==='expense_change_request'){const index=boardRequests.value.findIndex(r=>r.id===live.target_id);if(index>=0)requestPage.value=Math.floor(index/20)+1;await nextTick();document.getElementById(`request-${live.target_id}`)?.scrollIntoView({block:'center'})}return}
  if(live.target_type==='plan_deletion_request'){const p=await store.planRead(id,source);if(![...p.local.records,...p.local.tasks].some(r=>r.id===live.record_id&&!r.deleted))throw new Error('原记录已不可访问。');navigate('/plans');await nextTick();if(!plansWorkspaceRef.value?.openTarget(live.record_id))throw new Error('请先保存或取消当前编辑，再查看这条消息。');return}
@@ -218,29 +221,35 @@ const profileTrigger=ref<HTMLButtonElement>()
 
 let pendingNotification:NotificationIntent|undefined=parseNotificationIntent(location.href,location.origin)
 const notificationWaiting=ref(false)
+const notificationChooseScope=ref(false)
 let notificationOpening=false
 if(new URL(location.href).searchParams.has('notification'))window.history.replaceState(window.history.state,'',location.pathname+location.hash)
 async function processNotification(){
  const id=userId.value,intent=pendingNotification
  if(!id||locked.value||!intent||notificationOpening)return
- notificationOpening=true;notificationWaiting.value=false
+ notificationOpening=true;notificationWaiting.value=false;notificationChooseScope.value=false
  try{
   if(intent.source.user_id!==id)throw new Error('通知对应其他账号，请先通过正常账号入口处理；当前内容未改变。')
   const before=await store.read(id),context=await api.context(id);await store.reconcile(id,context,before.restore_id??'');await refresh(context);const latest=await store.read(id)
-  if(!sourceValid(latest,intent.source))throw new Error('这条通知的账号、恢复域或家庭权限已变化，未打开旧缓存。')
-  if(financialInputsBusy.value||hasUnsavedFinancialInputs.value||memoDraft.value||planDraft.value){notificationWaiting.value=true;message.value='有一条通知待打开，请先保存或取消当前编辑。';return}
-  if(!sameSource(account.value?.source,intent.source))await switchBook(intent.source.scope,intent.source.family_id)
-  if(!sameSource(account.value?.source,intent.source)){notificationWaiting.value=true;message.value='当前输入已保留；处理后可再打开这条通知。';return}
-  const result=await memoApi.notification(id,intent.source,intent.id);await store.verifySource(id,intent.source)
-  if(!sameSource(result.source,intent.source)||!sameSource(result.message.source,intent.source))throw new Error('通知来源已变化，未打开旧缓存。')
-  pendingNotification=undefined;await openMessage(result.message)
+  const weekly=intent.kind==='weekly_review'
+  if(weekly?intent.source.restore_id!==latest.restore_id:!sourceValid(latest,intent.source))throw new Error('这条通知的账号、恢复域或家庭权限已变化，未打开旧缓存。')
+  if(notificationHasInputs()){notificationWaiting.value=true;message.value='有一条通知待打开，请先保存或取消当前编辑。';return}
+  if(!weekly&&!sameSource(account.value?.source,intent.source))await switchBook(intent.source.scope,intent.source.family_id)
+  const target=weekly?account.value?.source:intent.source
+  if(!target||!sameSource(account.value?.source,target)){notificationWaiting.value=true;message.value='当前输入已保留；处理后可再打开这条通知。';return}
+  const result=await memoApi.notification(id,target,intent.id);await store.verifySource(id,target)
+  if(!sameSource(result.source,target)||result.message&&!sameSource(result.message.source,target))throw new Error('通知来源已变化，未打开旧缓存。')
+  message.value=result.notice??''
+  if(result.choose_scope){notificationChooseScope.value=true;notificationWaiting.value=true;return}
+  pendingNotification=undefined;if(result.message)await openMessage(result.message,true,result.notice)
  }catch(error){
   if(error instanceof TypeError||error instanceof ApiError&&([408,429].includes(error.status)||error.status>=500)){pendingNotification=intent;notificationWaiting.value=true;message.value='这条通知需要联网核对；当前输入保留，联网后可再打开。'}
   else if(error instanceof ApiError&&(error.status===401||error.code==='account_changed')){pendingNotification=intent;locked.value=true;message.value='请恢复通知对应账号登录后再打开；本机输入仍保留。'}
-  else{pendingNotification=undefined;message.value=error instanceof Error?error.message:'这条通知暂时无法核对，请联网后从消息查看。'}
+  else{pendingNotification=undefined;message.value=error instanceof ApiError&&error.code==='notification_unavailable'?'这条提醒已处理、已更新或不再可访问，请从消息查看当前事项。':error instanceof Error?error.message:'这条通知暂时无法核对，请联网后从消息查看。'}
  }finally{notificationOpening=false}
 }
 function notificationMessage(event:MessageEvent){if(event.data?.type!=='notification-open'||typeof event.data.url!=='string')return;const intent=parseNotificationIntent(event.data.url,location.origin);if(!intent)return;pendingNotification=intent;notificationWaiting.value=false;void processNotification()}
+function resumeNotification(){if(notificationChooseScope.value)bookPicker.value=true;else void processNotification()}
 const scopeName=computed(()=>tab.value==='shared'?account.value?.family?.name??'家庭':'私人')
 function navigate(target:AppRoute){
   closeAccountTools();bookPicker.value=false;inboxOpen.value=false
@@ -250,6 +259,7 @@ function homeAndRefresh(){
   navigate('/home')
   void sync()
   void checkFamilyAndInvites()
+  void checkAppUpdate()
 }
 function hashChanged(){
   route.value=parseAppRoute(window.location.hash)
@@ -258,7 +268,7 @@ function hashChanged(){
 }
 function returnFromConfig(){navigate('/settings')}
 function openFinancialRequests(){navigate('/accounting');if(resumeParkedFinancialInput())return false;requestBoard.value=true;requestMessage.value='';return true}
-function openFinancialReview(){if(resumeParkedFinancialInput())return;reviewOpen.value=true}
+function openFinancialReview(){if(resumeParkedFinancialInput())return;reviewTarget.value=undefined;reviewOpen.value=true}
 
 const filtersOpen=ref(false)
 const month = ref(shanghaiMonth(new Date().toISOString()))
@@ -313,9 +323,10 @@ function clearSelection(){selecting.value=false;selectedIds.value=[]}
 async function categoriesChanged(){await refresh();signal()}
 
 const reviewPanelRef=ref<{hasUnsavedChanges:boolean;isBusy:boolean}>()
-const familyPanelRef=ref<{isBusy:boolean}>()
+const familyPanelRef=ref<{isBusy:boolean;hasUnsavedChanges:boolean}>()
 const familyOpenSequence=ref(0)
 const reviewOpen=ref(false)
+const reviewTarget=ref<{tab:'weekly'|'reports';reportId?:string;notice?:string}>()
 const familyOpen=computed(()=>route.value==='/settings/family')
 const familyInitialTab=ref<'received'|'sent'>('received')
 const receivedInvites=ref<FamilyInvite[]>([])
@@ -512,6 +523,7 @@ async function switchBook(scope:Scope,familyId:string|null=null){
   reviewOpen.value=false;requestBoard.value=false;initialBookPending=false;tab.value=scope;currentFamilyId.value=familyId
   recordFilter.value='active';ratingFilter.value='';categoryFilter.value='';keyword.value='';bookPicker.value=false
   account.value=undefined;await refresh()
+  if(notificationChooseScope.value&&pendingNotification)void processNotification()
 }
 
 function changePage(delta:number){page.value=Math.max(1,Math.min(pageCount.value,page.value+delta));document.querySelector('.list-heading')?.scrollIntoView({block:'start'})}
@@ -1026,10 +1038,19 @@ function shellModalKeys(event:KeyboardEvent){
 watch([form,detailId,refundForm,requestForm,requestBoard,reviewOpen,categoryPanel,previewId,bookPicker,inboxOpen,syncOpen,monthPickerOpen,route,financialNavigationPaused],()=>{void nextTick(focusDialog)})
 watch([form,refundForm,requestForm,reviewOpen,categoryPanel,requestBoard],()=>{if(!form.value&&!refundForm.value&&!requestForm.value&&!reviewOpen.value&&!categoryPanel.value&&!requestBoard.value)financialNavigationPaused.value=false},{flush:'sync'})
 function cacheError() { localWarning.value='离线页面准备失败；本机账本仍保留，请联网重开以重试' }
+// Drafts stay in their owning components. An update waits rather than serializing input or files.
+const appUpdateBlocked=computed(()=>!ready.value||appInputActive.value||loggingIn.value||loggingOut.value||contextChanging.value||syncing.value||!!apiWrites.value||financialInputsBusy.value||hasUnsavedFinancialInputs.value||!!form.value||!!refundForm.value||!!requestForm.value||Object.keys(memoDrafts.value).length>0||Object.keys(planDrafts.value).length>0||!!memosWorkspaceRef.value?.updateBlocked||!!plansWorkspaceRef.value?.updateBlocked||!!familyPanelRef.value?.hasUnsavedChanges||route.value==='/settings/account'||!!password.value||!!displayName.value||!account.value&&!!username.value||!!account.value&&!account.value.source)
+configureAppUpdates(()=>!appUpdateBlocked.value,()=>rememberUpdateSource(account.value?.source))
+watch([appUpdateBlocked,appUpdateReady],()=>{void nextTick(applyAppUpdate)})
 onMounted(async () => {
   try {
     userId.value=await store.active()
-    if (userId.value) { beginOpeningScope();await refresh(); username.value=account.value?.username ?? '' }
+    if (userId.value) {
+      const source=takeUpdateSource(await store.read(userId.value))
+      beginOpeningScope()
+      if(source){tab.value=source.scope;currentFamilyId.value=source.family_id;initialBookPending=false}
+      await refresh();username.value=account.value?.username ?? ''
+    }
     if (navigator.storage?.persist) await navigator.storage.persist()
     localWarning.value=store.status||localWarning.value
   } catch { localWarning.value='本机存储无法打开，请检查浏览器设置。请勿清除已有网站数据' }
@@ -1059,8 +1080,9 @@ onUnmounted(() => { window.removeEventListener('keydown',shellModalKeys);window.
         <button ref="profileTrigger" class="life-avatar" @click="navigate('/settings')" :aria-label="`${account.user.display_name}的账号与设置`"><span>{{ account.user.display_name.slice(0,1) }}</span></button>
       </template>
     </header>
+    <p v-if="appUpdateReady" class="notice" role="status">{{ appUpdateError || (appUpdateBlocked?'新版本已就绪，当前输入或操作完成后会自动更新。':'新版本已就绪，正在更新…') }}</p>
     <p v-if="!supported" class="notice error" role="alert">当前浏览器暂不支持离线记账，请换用新版 Safari、Chrome 或 Edge。</p>
-    <p v-if="message && !['已同步到服务端','正在同步'].includes(message)" class="notice" role="status" aria-live="polite">{{ message }}<button v-if="notificationWaiting" type="button" class="text-button" @click="processNotification">打开待处理通知</button></p>
+    <p v-if="message && !['已同步到服务端','正在同步'].includes(message)" class="notice" role="status" aria-live="polite">{{ message }}<button v-if="notificationWaiting" type="button" class="text-button" @click="resumeNotification">{{ notificationChooseScope?'选择范围':'打开待处理通知' }}</button></p>
     <div v-if="inviteNotice && account && !locked" class="invite-notice notice" role="status"><span>{{ inviteNotice }}</span><button class="text-button" @click="openFamily('received')">查看邀请</button><button class="icon-button" aria-label="关闭邀请提示" @click="inviteNotice=''"><Icon name="close"/></button></div>
     <p v-if="!ready" class="empty">正在打开本机账本…</p>
     <section v-else-if="!account || locked" class="login-card card">
@@ -1133,7 +1155,7 @@ onUnmounted(() => { window.removeEventListener('keydown',shellModalKeys);window.
     <div v-if="monthPickerOpen && account && !locked" class="modal-backdrop month-picker-backdrop" @click.self="monthPickerOpen=false"><section class="form-card month-picker" role="dialog" aria-modal="true" aria-labelledby="month-picker-title"><div class="form-title"><h2 id="month-picker-title">选择统计月份</h2><button class="icon-button" aria-label="取消月份选择" @click="monthPickerOpen=false"><Icon name="close"/></button></div><form class="stack" @submit.prevent="applyMonth"><div class="month-picker-fields"><label>年份<input v-model="monthYear" type="number" min="1" max="9999" step="1" required inputmode="numeric" aria-label="年份"></label><label>月份<select v-model="monthNumber" aria-label="月份"><option v-for="n in 12" :key="n" :value="String(n).padStart(2,'0')">{{ n }}月</option></select></label></div><div class="month-picker-actions"><button type="button" class="subtle" @click="monthPickerOpen=false">取消</button><button type="submit" class="primary">确认月份</button></div></form></section></div>
     <div v-show="route==='/accounting' && !financialNavigationPaused">
     <CategoryPanel ref="categoryPanelRef" v-if="categoryPanel && account && !locked" :account="account" :store="store" :scope="categoryPanel.scope" :mode="categoryPanel.mode" :selected-ids="categoryPanel.ids" @close="categoryPanel=undefined" @changed="categoriesChanged" @refresh="sync" @unauthorized="locked=true" @submitted="clearSelection"/>
-    <ReviewPanel :store="store" ref="reviewPanelRef" v-if="reviewOpen && account && !locked" :account="account" :scope="tab" @close="reviewOpen=false" @restore-changed="sync" @unauthorized="locked=true" @changed="reviewChanged"/>
+    <ReviewPanel :store="store" ref="reviewPanelRef" v-if="reviewOpen && account && !locked" :account="account" :scope="tab" :initial-tab="reviewTarget?.tab" :initial-report-id="reviewTarget?.reportId" :initial-notice="reviewTarget?.notice" @close="reviewOpen=false" @restore-changed="sync" @unauthorized="locked=true" @changed="reviewChanged"/>
     </div>
     <footer v-if="localWarning" role="status">{{ localWarning }}</footer>
     <div v-if="syncOpen && account && !locked" class="modal-backdrop sync-modal" @click.self="closeSyncStatus"><section class="form-card sync-status-card" role="dialog" aria-modal="true" aria-labelledby="sync-status-title"><div class="form-title"><h2 id="sync-status-title">同步状态</h2><button class="icon-button" @click="closeSyncStatus" aria-label="关闭同步状态"><Icon name="close"/></button></div><p class="sync-status-heading" role="status">{{ syncStatus }}</p><p v-if="syncProblem" class="field-error">{{ syncProblem }}</p><p class="form-note">{{ syncSummary.lastSync?`最近同步：${displayTime(syncSummary.lastSync)}（上海时间）`:'尚未完成首次同步' }}</p><p class="form-note">以下统计覆盖此账号的私人及所有家庭范围，包含记录、分类与附件；尚未保存的编辑不在其中。</p><dl class="sync-counts"><div><dt>待同步</dt><dd>{{ syncSummary.active }} 项</dd></div><div><dt>共同记账</dt><dd>{{ syncSummary.financial }} 项</dd></div><div><dt>生活备忘</dt><dd>{{ syncSummary.memo }} 项</dd></div><div><dt>愿望与计划</dt><dd>{{ syncSummary.plan }} 项</dd></div></dl><p v-if="syncSummary.active" class="form-note">待同步内容仍保存在本机，尚未全部上传。联网后会继续同步；需要核对的项目请在对应模块处理。</p><p v-if="syncSummary.frozen" class="notice">{{ syncSummary.frozen }} 项旧内容已冻结，不会自动上传或转入其他范围。请在共同记账中查看冻结待办说明。</p><ul v-if="syncSummary.issues.length" class="sync-issue-list"><li v-for="issue in syncSummary.issues" :key="issue">{{ issue }}</li></ul><button class="primary" @click="sync" :disabled="syncing || !supported || !networkOnline">{{ syncing?'同步中…':'立即同步' }}</button><p v-if="!networkOnline" class="form-note">当前离线，本机内容保留，联网后可重试。</p></section></div>

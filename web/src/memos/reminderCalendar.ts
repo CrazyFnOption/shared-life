@@ -1,3 +1,4 @@
+import { occurrenceAt } from './reminderSlots'
 import type { MemoPartition } from './domain'
 import type { MemoOccurrence } from './calendarCache'
 import type { MemoRecordView, ScheduleView } from './types'
@@ -5,7 +6,7 @@ import type { MemoRecordView, ScheduleView } from './types'
 /** Calendar rows are reminders; storage kind remains an implementation detail. */
 export function reminderCalendarViews(partition:MemoPartition|undefined,records:MemoRecordView[]):ScheduleView[]{
  if(!partition)return[]
- return records.filter(record=>(!record.archived||record.completed&&record.recurrence)&&!(record.kind==='schedule'&&record.occurrence_key)).flatMap(record=>{
+ return records.filter(record=>(!record.archived||record.completed&&record.recurrence)&&!record.occurrence_key).flatMap(record=>{
   const raw=partition.local.find(item=>item.id===record.id)
   if(!raw?.reminders?.length)return[]
   const pending=partition.queue.filter(q=>q.operation.entity_type==='memo'&&q.operation.entity_id===record.id)
@@ -18,9 +19,11 @@ export function reminderCalendarViews(partition:MemoPartition|undefined,records:
    const instant=reminder.mode==='absolute'?Date.parse(reminder.at??''):raw.schedule?Date.parse(`${raw.schedule.start_date}T${raw.schedule.start_time??'00:00'}:00+08:00`)-reminder.offset_minutes*60000:NaN
    if(!Number.isFinite(instant))return[]
    const local=new Date(instant+8*3600000).toISOString(),day=local.slice(0,10)
-   return[{memo_id:record.id,record_version:record.version,date:day,start_date:day,end_date:null,start_time:local.slice(11,16),end_time:null,reminder_id:reminder.id,occurrence_date:raw.schedule?.start_date??day} satisfies MemoOccurrence]
+   return[{memo_id:record.id,record_version:record.version,date:day,start_date:day,end_date:null,start_time:local.slice(11,16),end_time:null,reminder_id:reminder.id,occurrence_date:raw.schedule?.start_date??day,occurrence_at:occurrenceAt(new Date(instant).toISOString())} satisfies MemoOccurrence]
   })}
-  occurrences=occurrences.filter(item=>!raw.archived_occurrences?.some(entry=>entry.start_date===(item.occurrence_date??item.start_date)&&entry.archived_at))
+  occurrences=occurrences.filter(item=>(raw.reminders!.length>1||!raw.archived_occurrences?.some(entry=>entry.start_date===(item.occurrence_date??item.start_date)&&entry.archived_at)))
+  occurrences=occurrences.filter(item=>!raw.reminder_occurrences?.some(slot=>slot.archived_at&&occurrenceAt(slot.occurrence_at)===occurrenceAt(item.occurrence_at??`${item.date}T${item.start_time??'00:00'}:00+08:00`)))
+  occurrences=[...new Map(occurrences.map(item=>[item.occurrence_at??`${item.date}T${item.start_time}`,item])).values()]
   const first=occurrences[0]
   return[{...record,archived:false,completed:false,kind:'schedule' as const,start_date:first?.start_date??'',end_date:null,start_time:first?.start_time??null,end_time:null,occurrences,occurrence_months:months.map(([month])=>month),calendar_projection:true}]
  })

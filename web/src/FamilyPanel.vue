@@ -14,7 +14,8 @@ const defaultChoice=ref(props.account.context?.default_scope.family_id??'private
 function familySource(value:Family=family.value!):Source{if(!value)throw new Error('请先选择要管理的家庭');return sourceFor(props.account,{scope:'shared',family_id:value.id})}
 async function saveDefault(){if(busy.value||!props.account.context)return;const origin=source(),version=epoch,input={request_id:crypto.randomUUID(),base_version:props.account.context.default_scope.version,scope:defaultChoice.value==='private'?'private' as const:'shared' as const,family_id:defaultChoice.value==='private'?null:defaultChoice.value};busy.value=true;message.value='';try{const result=await api.defaultScope(origin,input);if(current(origin,version)){emit('metadataChanged',result.context,origin);message.value='默认范围已保存，下次打开时使用；当前范围保持不变'}}catch(error){if(current(origin,version))message.value=fail(error)}finally{if(current(origin,version))busy.value=false}}
 const isBusy=computed(()=>busy.value)
-defineExpose({isBusy})
+const hasUnsavedChanges=computed(()=>!!name.value||!!target.value||!!successor.value||defaultChoice.value!==(props.account.context?.default_scope.family_id??'private'))
+defineExpose({isBusy,hasUnsavedChanges})
 const exitStep=ref<'choose'|'transfer'|'dissolve'>()
 const inviteTab=ref<'received'|'sent'>(props.initialTab??(family.value?'sent':'received'))
 const pendingReceived=computed(()=>props.received.filter(i=>i.status==='pending'))

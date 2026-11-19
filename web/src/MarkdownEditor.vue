@@ -5,12 +5,12 @@ import type { Range } from '@codemirror/state'
 import { Decoration, EditorView, keymap, placeholder as editorPlaceholder } from '@codemirror/view'
 import type { DecorationSet } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap, undo, redo } from '@codemirror/commands'
-import { markdown, markdownKeymap } from '@codemirror/lang-markdown'
+import { markdown, markdownKeymap, markdownLanguage } from '@codemirror/lang-markdown'
 import { syntaxTree } from '@codemirror/language'
 import './markdown-editor.css'
 
-const props = withDefaults(defineProps<{modelValue:string;disabled?:boolean;label?:string;placeholder?:string}>(),{disabled:false,label:'正文，支持 Markdown',placeholder:'写下内容，也可以用 Markdown 排版'})
-const emit = defineEmits<{'update:modelValue':[value:string];'composition-state':[active:boolean]}>()
+const props = withDefaults(defineProps<{modelValue:string;disabled?:boolean;label?:string;placeholder?:string;checklist?:boolean}>(),{disabled:false,label:'正文，支持 Markdown',placeholder:'写下内容，也可以用 Markdown 排版'})
+const emit = defineEmits<{'update:modelValue':[value:string];'composition-state':[active:boolean];'document-change':[value:{body:string;changes:import('@codemirror/state').ChangeDesc}]}>()
 const host = ref<HTMLElement>()
 let view:EditorView|undefined
 const editable = new Compartment()
@@ -84,12 +84,12 @@ function finishComposition(){
   emit('composition-state',false)
  })})
 }
-function format(kind:'heading'|'bold'|'list'|'link'){
+function format(kind:'heading'|'bold'|'list'|'checklist'|'link'){
  if(!view||props.disabled||composing||settling)return
  const {from,to}=view.state.selection.main,selected=view.state.sliceDoc(from,to)
- if(kind==='heading'||kind==='list'){
+ if(kind==='heading'||kind==='list'||kind==='checklist'){
   const start=view.state.doc.lineAt(from).from,end=view.state.doc.lineAt(to).to
-  const prefix=kind==='heading'?'## ':'- ',text=view.state.sliceDoc(start,end).split('\n').map(line=>prefix+line).join('\n')
+  const prefix=kind==='heading'?'## ':kind==='checklist'?'- [ ] ':'- ',text=view.state.sliceDoc(start,end).split('\n').map(line=>kind==='checklist'?/^(\s*(?:[-+*]|\d+[.)])\s+)(?:\[[ xX]\]\s+)?/.test(line)?line.replace(/^(\s*(?:[-+*]|\d+[.)])\s+)(?:\[[ xX]\]\s+)?/,'$1[ ] '):prefix+line:prefix+line).join('\n')
   view.dispatch({changes:{from:start,to:end,insert:text},selection:{anchor:start+prefix.length,head:start+text.length},userEvent:'input.format'})
  }else{
   const before=kind==='bold'?'**':'[',after=kind==='bold'?'**':'](https://)',text=selected||(kind==='bold'?'文字':'链接文字')
@@ -100,10 +100,10 @@ function format(kind:'heading'|'bold'|'list'|'link'){
 function historyAction(action:'undo'|'redo'){if(!view||props.disabled||composing||settling)return;(action==='undo'?undo:redo)(view);view.focus()}
 onMounted(()=>{
  view=new EditorView({parent:host.value,state:EditorState.create({doc:props.modelValue,extensions:[
-  markdown(),history(),keymap.of([...markdownKeymap,...defaultKeymap,...historyKeymap]),EditorView.lineWrapping,
+  markdown({base:props.checklist?markdownLanguage:undefined}),history(),keymap.of([...markdownKeymap,...defaultKeymap,...historyKeymap]),EditorView.lineWrapping,
   editable.of([EditorState.readOnly.of(props.disabled),EditorView.editable.of(!props.disabled)]),
   EditorView.contentAttributes.of({'aria-label':props.label,'aria-multiline':'true',role:'textbox',autocapitalize:'sentences'}),editorPlaceholder(props.placeholder),display,
-  EditorView.updateListener.of(update=>{if(update.docChanged)emit('update:modelValue',update.state.doc.toString())}),
+  EditorView.updateListener.of(update=>{if(update.docChanged){emit('document-change',{body:update.state.doc.toString(),changes:update.changes});emit('update:modelValue',update.state.doc.toString())}}),
   EditorView.domEventHandlers({focus(){focused=true;signal()},blur(){focused=false;signal()},compositionstart(){composing=true;emit('composition-state',true)},compositionend(){composing=false;settling=true;finishComposition()}})
  ]})})
 })
@@ -118,12 +118,13 @@ defineExpose({focus:()=>view?.focus()})
    <button type="button" :disabled="disabled" aria-label="插入标题" title="标题" @click="format('heading')">H</button>
    <button type="button" :disabled="disabled" aria-label="加粗" title="加粗" @click="format('bold')"><strong>B</strong></button>
    <button type="button" :disabled="disabled" aria-label="插入列表" title="列表" @click="format('list')">☷</button>
+   <button v-if="checklist" type="button" :disabled="disabled" aria-label="插入清单" title="清单" @click="format('checklist')">☑</button>
    <button type="button" :disabled="disabled" aria-label="插入链接" title="链接" @click="format('link')">↗</button>
    <span class="md-toolbar-spacer" />
    <button type="button" :disabled="disabled" aria-label="撤销正文修改" title="撤销" @click="historyAction('undo')">↶</button>
    <button type="button" :disabled="disabled" aria-label="重做正文修改" title="重做" @click="historyAction('redo')">↷</button>
   </div>
   <div ref="host" class="md-document" />
-  <p class="md-hint">支持 Markdown · 点按正文直接编辑</p>
+  <p v-if="!checklist" class="md-hint">支持 Markdown · 点按正文直接编辑</p>
  </section>
 </template>

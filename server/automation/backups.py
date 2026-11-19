@@ -53,7 +53,7 @@ def validate_database(db, *, allow_legacy=False):
     if db.execute('PRAGMA integrity_check').fetchone()[0]!='ok' or list(db.execute('PRAGMA foreign_key_check')):
         raise ValueError('Database integrity validation failed')
     schema_version=db.execute('PRAGMA user_version').fetchone()[0]
-    schema_v2 = schema_version in (8,9,10,11)
+    schema_v2 = schema_version in (8,9,10,11,12,13)
     required={'users','sessions','expenses','refunds','expense_images','revisions','operations','change_requests','app_state','reports','report_tasks','push_subscriptions','notification_outbox','push_deliveries','model_usage','weekly_settings','categories','backup_runs','user_sync'}
     family_tables={'families','family_members','family_invites','family_actions','monthly_settings','schema_migrations'}
     tables={r['name'] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
@@ -72,8 +72,8 @@ def validate_database(db, *, allow_legacy=False):
     if schema_v2:
         validate_multi_family(db,tables)
     elif not allow_legacy:
-        raise ValueError('Schema 8, 9 or 10 required')
-    if schema_version in (9,10,11):
+        raise ValueError('Supported multi-family schema required')
+    if schema_version in (9,10,11,12,13):
         from server.memos.service import validate_database as validate_memos
         validate_memos(db)
         from server.plans import validate_database as validate_plans
@@ -178,7 +178,7 @@ def restore(backup_dir,destination,credentials=None):
     version=manifest.get('format_version')
     if version not in (1,2) or set(manifest.get('files',{}))!={'business.sqlite3','credentials.json'}:
         raise ValueError('Unsupported backup manifest')
-    if version==2 and (manifest.get('database_schema') not in (8,9,10,11) or manifest.get('min_restore_protocol')!=2):
+    if version==2 and (manifest.get('database_schema') not in (8,9,10,11,12,13) or manifest.get('min_restore_protocol')!=2):
         raise ValueError('Unsupported backup schema')
     if not (source/'business.sqlite3').is_file() or sha(source/'business.sqlite3')!=manifest['files']['business.sqlite3']:
         raise ValueError('Backup file checksum mismatch')

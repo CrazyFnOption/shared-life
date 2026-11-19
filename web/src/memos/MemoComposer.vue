@@ -1,19 +1,25 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch } from 'vue'
 import MemoAttachments from './MemoAttachments.vue'
 import MemoTimeInput from './MemoTimeInput.vue'
 const MarkdownEditor = defineAsyncComponent(() => import('../MarkdownEditor.vue'))
 import type { User } from '../types'
 import { localDay, simpleRepeatAnchor } from './dates'
+import { bindTasks, mapTaskEdits } from './markdownChecklist'
 import { copyDraft } from './types'
-import type { MemoAttachmentView, MemoCategoryView, MemoDraft } from './types'
+import { freezeQuickReminder, quickReminderAt, quickReminderLabel } from './quickReminders'
+import type { MemoAttachmentView, MemoCategoryView, MemoDraft, MemoQuickReminder } from './types'
 
 const props = withDefaults(defineProps<{ initial: MemoDraft; lockedKind?: 'memo'|'schedule'; categories: MemoCategoryView[]; saving?: boolean; error?: string; scheduleEnabled?: boolean; focusEnabled?: boolean; members?: User[]; currentUserId?: string }>(), { saving: false, error: '', scheduleEnabled: false, focusEnabled: false, members: () => [], currentUserId: '' })
 const emit = defineEmits<{ save: [draft: MemoDraft]; cancel: []; change: [draft: MemoDraft]; 'create-category': []; 'request-attachment': [file: MemoAttachmentView] }>()
 const draft = ref(copyDraft(props.initial))
+const bodyTasks=ref(bindTasks(draft.value.body,draft.value.checklist_items??[]))
+const knownTasks=[...bodyTasks.value]
+const originalChecks=new Set(draft.value.checklist_checked_ids??[])
+function bodyChanged(value:{body:string;changes:import('@codemirror/state').ChangeDesc}){bodyTasks.value=mapTaskEdits(bodyTasks.value,value.body,value.changes,knownTasks);for(const task of bodyTasks.value){const known=knownTasks.find(item=>item.id===task.id);if(known)Object.assign(known,task);else knownTasks.push(task)};draft.value.checklist_items=bodyTasks.value.map(({id,text})=>({id,text}))}
 draft.value.reminders??=[]
 draft.value.recurrence??=null
-const remindersOpen = ref(false)
+const remindersOpen = ref(Boolean(draft.value.quick_reminder))
 
 const bodyOpen = ref(Boolean(draft.value.body.trim() || draft.value.attachments.length))
 const localError = ref('')
@@ -39,18 +45,40 @@ const yearCalendar=ref<'solar'|'lunar'>(draft.value.recurrence?.calendar??'solar
 const lunarMonth=ref(draft.value.recurrence?.lunar_month??1),lunarDay=ref(draft.value.recurrence?.lunar_day??1),lunarLeap=ref(draft.value.recurrence?.lunar_leap??false)
 const settingsTouched=ref(false)
 const weekdays=['周一','周二','周三','周四','周五','周六','周日']
+const quickDefaults:MemoQuickReminder[]=[{amount:1,unit:'minute'},{amount:10,unit:'minute'},{amount:30,unit:'minute'},{amount:1,unit:'hour'},{amount:1,unit:'day'},{amount:2,unit:'day'}]
+const quickGroups=[{label:'分钟',choices:[5,15].map(amount=>({amount,unit:'minute' as const}))},{label:'小时',choices:[2,3,6,12].map(amount=>({amount,unit:'hour' as const}))},{label:'天与周',choices:[{amount:3,unit:'day' as const},{amount:1,unit:'week' as const},{amount:2,unit:'week' as const}]}]
+const customAmount=ref(draft.value.quick_reminder?.amount.toString()??'')
+const customUnit=ref<MemoQuickReminder['unit']>(draft.value.quick_reminder?.unit??'minute')
+const previewNow=ref(Date.now())
+let previewTimer:ReturnType<typeof setInterval>|undefined
+onMounted(()=>{previewTimer=setInterval(()=>{previewNow.value=Date.now()},1000)})
+onUnmounted(()=>{if(previewTimer)clearInterval(previewTimer)})
+const quickAt=computed(()=>draft.value.quick_reminder?quickReminderAt(draft.value.quick_reminder,previewNow.value):null)
+const onceAt=computed(()=>quickAt.value??(draft.value.reminders?.[0]?.mode==='relative'?initialAt??null:draft.value.reminders?.[0]?.at??null))
+const onceDisplayClock=computed(()=>draft.value.quick_reminder?localTime(quickAt.value).slice(11,16):notifyClock.value)
+const quickPreview=computed(()=>quickAt.value?new Date(Date.parse(quickAt.value)+8*3600000).toISOString().slice(5,19).replace('T',' '):'')
+function quickSelected(choice:MemoQuickReminder){const selected=draft.value.quick_reminder;return selected?.amount===choice.amount&&selected.unit===choice.unit}
+function selectQuick(choice:MemoQuickReminder){
+ reminderMode.value='once';configureReminder();draft.value.quick_reminder={...choice};draft.value.reminders![0]!.at=null;previewNow.value=Date.now()
+}
+function selectCustom(){
+ const amount=Number(customAmount.value)
+ try{if(!/^[1-9]\d*$/.test(customAmount.value))throw new Error('请输入有效的正整数时长。');quickReminderAt({amount,unit:customUnit.value},Date.now());selectQuick({amount,unit:customUnit.value})}
+ catch(error){localError.value=error instanceof Error?error.message:'请输入有效的正整数时长。'}
+}
 const recipientDifference=computed(()=>draft.value.reminders!.some(reminder=>reminder.all_members!==draft.value.reminders![0]?.all_members||JSON.stringify(reminder.recipient_ids)!==JSON.stringify(draft.value.reminders![0]?.recipient_ids)))
 function toggleDay(values:number[],day:number){const index=values.indexOf(day);if(index>=0)values.splice(index,1);else values.push(day);configureReminder()}
 function addClock(){if(clockRows.value.length>=20)return;clockRows.value.push({id:crypto.randomUUID(),clock:'09:00'});configureReminder()}
 function removeClock(id:string){if(clockRows.value.length<=1)return;clockRows.value=clockRows.value.filter(row=>row.id!==id);configureReminder()}
 function recipientsChanged(){const first=draft.value.reminders?.[0];if(first)for(const reminder of draft.value.reminders??[]){reminder.all_members=first.all_members;reminder.recipient_ids=[...first.recipient_ids]}}
-const reminderSummary=computed(()=>({none:'不提醒',once:'仅一次',daily:'每天',weekly:'每周',monthly:'每月',yearly:'每年'})[reminderMode.value])
+const reminderSummary=computed(()=>draft.value.quick_reminder?`保存后 ${quickReminderLabel(draft.value.quick_reminder)}`:({none:'不提醒',once:'仅一次',daily:'每天',weekly:'每周',monthly:'每月',yearly:'每年'})[reminderMode.value])
 function localTime(value:string|null){if(!value)return '';const date=new Date(value);if(!Number.isFinite(date.getTime()))return '';return new Date(date.getTime()+8*3600000).toISOString().slice(0,16)}
-function onceTime(day:string,clock=notifyClock.value){configureReminder();if(draft.value.reminders?.[0])draft.value.reminders[0].at=day?new Date(`${day}T${clock}:00+08:00`).toISOString():null}
-function onceClock(clock:string){notifyClock.value=clock;onceTime(localTime(draft.value.reminders?.[0]?.mode==='relative'?initialAt??null:draft.value.reminders?.[0]?.at??null).slice(0,10),clock)}
+function onceTime(day:string,clock=onceDisplayClock.value){configureReminder();if(draft.value.reminders?.[0])draft.value.reminders[0].at=day?new Date(`${day}T${clock}:00+08:00`).toISOString():null;notifyClock.value=clock}
+function onceClock(clock:string){const day=localTime(onceAt.value).slice(0,10);onceTime(day,clock)}
 function configureReminder(){
  localError.value=''
  settingsTouched.value=true
+ delete draft.value.quick_reminder
  if(reminderMode.value==='none'){draft.value.reminders=[];draft.value.recurrence=null;return}
  const prior=draft.value.reminders??[]
  const makeReminder=(id:string)=>{const before=prior.find(reminder=>reminder.id===id)??prior[0];return{id,mode:'absolute' as const,at:before?.at??null,offset_minutes:0,recipient_ids:before?[...before.recipient_ids]:props.currentUserId?[props.currentUserId]:[],all_members:before?.all_members??false}}
@@ -76,10 +104,17 @@ function save() {
     if (!draft.value.all_day && !times.includes(draft.value.start_time)) { localError.value = '请选择半小时精度的开始时间。'; return }
     if (draft.value.has_end && (!draft.value.end_date || draft.value.end_date < draft.value.start_date || !draft.value.all_day && (draft.value.end_date === draft.value.start_date && draft.value.end_time <= draft.value.start_time || !times.includes(draft.value.end_time)))) { localError.value = '结束时间须晚于开始时间。全天日程可在同一天结束。'; return }
   }
-  if(draft.value.reminders?.some(r=>r.mode==='absolute'&&!r.at||!r.all_members&&!r.recipient_ids.length||r.mode==='relative'&&!isSchedule.value)){localError.value='请填写提醒时间并选择接收人。';return}
+  if(draft.value.reminders?.some(r=>r.mode==='absolute'&&!r.at&&!draft.value.quick_reminder||!r.all_members&&!r.recipient_ids.length||r.mode==='relative'&&!isSchedule.value)){localError.value='请填写提醒时间并选择接收人。';return}
   if(draft.value.recurrence&&(draft.value.recurrence.interval<1||draft.value.recurrence.interval>99||!draft.value.recurrence.start_date||draft.value.recurrence.until&&draft.value.recurrence.until<draft.value.recurrence.start_date)){localError.value='请核对重复的间隔、开始和结束日期。';return}
   if(settingsTouched.value&&draft.value.reminders){const unique=new Map<string|null,typeof draft.value.reminders[number]>();for(const reminder of draft.value.reminders)if(!unique.has(reminder.at))unique.set(reminder.at,reminder);draft.value.reminders=[...unique.values()].sort((a,b)=>(a.at??'').localeCompare(b.at??''))}
-  emit('save', { ...copyDraft(draft.value), title: draft.value.title.trim() })
+  if(bodyTasks.value.length>100||bodyTasks.value.some(task=>task.text.length>500)){localError.value='清单最多100项，每项最多500字。';return}
+  draft.value.checklist_items=bodyTasks.value.map(({id,text})=>({id,text}))
+  draft.value.checklist_checks=bodyTasks.value.filter(task=>task.checked!==originalChecks.has(task.id)).map(task=>({item_id:task.id,checked:task.checked}))
+  const saved=freezeQuickReminder(draft.value,Date.now())
+  // Failed saves and session draft restoration retain this same frozen time.
+  draft.value=saved
+  notifyClock.value=localTime(saved.reminders?.[0]?.at??null).slice(11,16)||notifyClock.value
+  emit('save', { ...copyDraft(saved), title: saved.title.trim() })
 }
 function addFiles(files: MemoAttachmentView[]) { draft.value.attachments.push(...files) }
 function titleEnter(event: KeyboardEvent) { if (!event.isComposing && event.keyCode !== 229) event.preventDefault() }
@@ -89,10 +124,11 @@ function titleEnter(event: KeyboardEvent) { if (!event.isComposing && event.keyC
   <form class="memo-composer" :aria-busy="saving" @submit.prevent="save" @compositionstart="nativeComposing = true" @compositionend="nativeComposing = false">
     <section class="memo-compose-sheet" aria-label="记录正文">
       <input v-model="draft.title" class="memo-title-input" aria-label="标题" placeholder="标题" :disabled="saving" @keydown.enter="titleEnter">
+
       <details class="memo-body-disclosure" :open="bodyOpen" @toggle="bodyOpen=($event.target as HTMLDetailsElement).open">
-        <summary><span>{{ bodyOpen || draft.body.trim() || draft.attachments.length ? '正文与文件' : '添加正文、图片或附件' }}</span><small>{{ draft.attachments.length ? `${draft.attachments.length} 个文件` : draft.body.trim() ? '已填写' : '选填' }}</small></summary>
+        <summary><span>{{ bodyOpen || draft.body.trim() || draft.attachments.length ? '正文与文件' : '添加正文、图片或附件' }}</span><small v-if="draft.attachments.length">{{ draft.attachments.length }} 个文件</small></summary>
         <div class="memo-body-content">
-          <MarkdownEditor v-model="draft.body" :disabled="saving" @composition-state="editorComposing=$event" />
+          <MarkdownEditor v-model="draft.body" checklist @document-change="bodyChanged" :disabled="saving" @composition-state="editorComposing=$event" />
           <MemoAttachments :files="draft.attachments" editable embedded :disabled="saving" @add="addFiles" @remove="id => draft.attachments = draft.attachments.filter(file => file.id !== id)" @request="emit('request-attachment', $event)" />
         </div>
       </details>
@@ -112,8 +148,17 @@ function titleEnter(event: KeyboardEvent) { if (!event.isComposing && event.keyC
         <summary><span>提醒与重复</span><small>{{ reminderSummary }}</small></summary>
         <section aria-label="提醒与重复设置">
           <label class="memo-field">重复<select v-model="reminderMode" :disabled="saving" @change="configureReminder"><option value="none">不提醒</option><option value="once">仅一次</option><option value="daily">每天</option><option value="weekly">每周</option><option value="monthly">每月</option><option value="yearly">每年</option></select></label>
+          <section v-if="reminderMode==='none'||reminderMode==='once'" class="memo-quick-reminders" aria-label="快捷提醒">
+            <span class="memo-quick-heading">快捷提醒</span>
+            <div class="memo-quick-grid"><button v-for="choice in quickDefaults" :key="`${choice.amount}-${choice.unit}`" type="button" :disabled="saving" :aria-pressed="quickSelected(choice)" @click="selectQuick(choice)">{{ quickReminderLabel(choice) }}后</button></div>
+            <details class="memo-quick-more"><summary>更多时长与自定义</summary><div class="memo-quick-more-content">
+              <div v-for="group in quickGroups" :key="group.label" class="memo-quick-group"><span>{{ group.label }}</span><div class="memo-quick-grid"><button v-for="choice in group.choices" :key="`${choice.amount}-${choice.unit}`" type="button" :disabled="saving" :aria-pressed="quickSelected(choice)" @click="selectQuick(choice)">{{ quickReminderLabel(choice) }}后</button></div></div>
+              <div class="memo-custom-reminder"><label class="memo-field">自定义时长<input v-model="customAmount" type="text" inputmode="numeric" placeholder="正整数" :disabled="saving" @keydown.enter.prevent="selectCustom"></label><label class="memo-field">单位<select v-model="customUnit" :disabled="saving"><option value="minute">分钟</option><option value="hour">小时</option><option value="day">天</option><option value="week">周</option></select></label><button type="button" class="memo-secondary" :disabled="saving" @click="selectCustom">应用</button></div>
+            </div></details>
+            <div v-if="draft.quick_reminder" class="memo-quick-preview"><strong>保存后 {{ quickReminderLabel(draft.quick_reminder) }}提醒</strong><span>预计 {{ quickPreview }}（上海时间）</span></div>
+          </section>
           <template v-if="reminderMode!=='none'">
-            <div v-if="reminderMode==='once' && draft.reminders?.[0]" class="memo-once-time"><label class="memo-field">提醒日期<input type="date" :value="localTime(draft.reminders[0].mode==='relative'?initialAt??null:draft.reminders[0].at).slice(0,10)" :disabled="saving" @input="onceTime(($event.target as HTMLInputElement).value)"></label><div class="memo-field"><span>提醒时间</span><MemoTimeInput :model-value="notifyClock" :disabled="saving" @update:model-value="onceClock" /></div></div>
+            <div v-if="reminderMode==='once' && draft.reminders?.[0]" class="memo-once-time"><label class="memo-field">提醒日期<input type="date" :value="localTime(onceAt).slice(0,10)" :disabled="saving" @input="onceTime(($event.target as HTMLInputElement).value)"></label><div class="memo-field"><span>提醒时间</span><MemoTimeInput :model-value="onceDisplayClock" :disabled="saving" @update:model-value="onceClock" /></div></div>
             <template v-else>
               <fieldset v-if="reminderMode==='weekly'" class="memo-day-picker" :disabled="saving"><legend>星期 <small>可多选</small></legend><div class="memo-day-options"><button v-for="(name,index) in weekdays" :key="name" type="button" :aria-label="name" :aria-pressed="weekDays.includes(index+1)" @click="toggleDay(weekDays,index+1)">{{ name.slice(1) }}</button></div></fieldset>
               <fieldset v-if="reminderMode==='monthly'" class="memo-day-picker" :disabled="saving"><legend>每月几号 <small>可多选</small></legend><div class="memo-day-options"><button v-for="day in 31" :key="day" type="button" :aria-label="`${day}号`" :aria-pressed="monthDays.includes(day)" @click="toggleDay(monthDays,day)">{{ day }}</button></div><p class="memo-muted">当月没有所选日期时，在月底提醒。</p></fieldset>
@@ -126,8 +171,6 @@ function titleEnter(event: KeyboardEvent) { if (!event.isComposing && event.keyC
             </template>
             <fieldset v-if="draft.reminders?.[0]" class="memo-setting-group memo-reminder" :disabled="saving" @change="recipientsChanged"><legend class="memo-sr">提醒对象</legend><label v-if="members.length>1" class="memo-option">家庭全员<input v-model="draft.reminders[0].all_members" type="checkbox"></label><div v-if="!draft.reminders[0].all_members" class="memo-recipients"><label v-for="member in members" :key="member.id" class="memo-option"><input v-model="draft.reminders[0].recipient_ids" type="checkbox" :value="member.id">{{ member.display_name }}</label></div></fieldset>
             <p v-if="recipientDifference" class="memo-muted">各时间原有提醒对象已保留；修改提醒对象将统一应用。</p>
-            <p v-if="draft.id&&!settingsTouched" class="memo-muted">未修改提醒设置时，原规则会完整保留。</p>
-            <p v-else-if="reminderMode!=='once'" class="memo-muted">按固定日期提醒，完成时间不影响下一期。</p>
           </template>
         </section>
       </details>

@@ -53,3 +53,9 @@ test('有效规划回执与费用状态独立：未知费用仍保留ready正文
 
 
 test('已确认保存发言的校验/连接/结果未知提示不承诺清空后的输入还在，且不会自动重发',()=>{for(const code of ['ai_invalid','ai_transient','ai_result_unknown']){const text=aiError(new ApiError(503,code));expect(text).toContain('已保存的发言仍在讨论中');expect(text).toMatch(/不会自动重[新]*发/);expect(text).not.toContain('输入草稿仍保留');}expect(aiError(new ApiError(503,'ai_invalid'))).toContain('未通过校验');expect(aiError(new ApiError(503,'ai_invalid'))).toContain('恢复原文后主动重试');})
+
+
+test('完整方案选择带入创建计划和新阶段，但不强制阶段修改或不可用项',()=>{const full:AiPlanDraft={...draft,items:[{...draft.items[0]!,id:'plan',kind:'plan',operation:'create'},{...draft.items[0]!,operation:'create'}, {...draft.items[1]!,operation:'create'}, {...draft.items[0]!,id:'existing-stage',operation:'update',target_id:'actual-stage'},{...draft.items[1]!,id:'existing-task',operation:'update',stage_key:'actual-stage'},{...draft.items[1]!,id:'blocked',blocked_reason:'creator_required'}]};expect(selectionWithStages(full,['task','blocked']).map(item=>item.id)).toEqual(['plan','stage','task']);expect(selectionWithStages(full,['existing-task']).map(item=>item.id)).toEqual(['plan','existing-task']);expect(selectionWithStages(full,[])).toEqual([])})
+
+
+test('任务先编辑所属新阶段后，按实际采用内容带入新依赖，不带旧阶段',()=>{const next={...draft.items[0]!,id:'stage-b',title:'第二天',operation:'create' as const},proposal={...draft,items:[...draft.items,next]};expect(selectionWithStages(proposal,['task'],{task:{stage_key:'stage-b'}}).map(item=>item.id)).toEqual(['task','stage-b']);expect(selectionWithStages({...proposal,items:proposal.items.map(item=>item.id==='stage-b'?{...item,adopted:true,entity_id:'actual-stage-b'}:item)},['task'],{task:{stage_key:'stage-b'}}).map(item=>item.id)).toEqual(['task'])})

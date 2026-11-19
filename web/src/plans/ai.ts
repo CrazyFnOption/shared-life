@@ -1,17 +1,18 @@
 import { apiRequest, ApiError } from '../api'
 import { sameSource } from '../sources'
 import type { Source } from '../types'
-import type { PlanAttachment, PlanRecord } from './types'
+import type { PlanAttachment, PlanRecord, PlanStage, PlanTask } from './types'
 export interface AiSource {title:string;url:string;checked_at:string|null;verified:boolean}
 export interface AiMaterial {id:string;name:string;mime_type:string;size_bytes:number}
 export interface AiMessage {id:string;op_id?:string;role:'user'|'assistant';author_id:string|null;author_name:string;content:string;created_at:string;status:string;cost_status?:'reserved'|'settled'|'unknown'|null;error?:string;sources:AiSource[];chosen_materials:AiMaterial[]}
-export interface AiPlanItem {id:string;kind:'stage'|'task';title:string;body_markdown:string;stage_key:string|null;assignee_ids:string[];due_date:string|null;adopted:boolean}
-export interface AiPlanDraft {id:string;turn_id:string;base_version:number;items:AiPlanItem[]}
-export interface AiConversation {source:Source;record_id:string;configured:boolean;status:'unconfigured'|'ready'|'running'|'failed';messages:AiMessage[];drafts:AiPlanDraft[];chosen_materials:AiMaterial[];budget:{month:string;limit_micro_usd:number;committed_micro_usd:number;remaining_micro_usd:number;confirmed_micro_usd:number;reserved_micro_usd:number;unknown_micro_usd:number;has_unknown:boolean;blocked:boolean}}
+export interface AiPlanItem {id:string;kind:'plan'|'stage'|'task';operation?:'create'|'update'|'delete';target_id?:string|null;base_version?:number|null;changed_fields?:string[];position?:number|null;target_date?:string|null;open_questions_markdown?:string|null;before?:Record<string,unknown>;after?:Record<string,unknown>|null;entity_id?:string|null;blocked_reason?:string|null;title:string;body_markdown:string;stage_key:string|null;assignee_ids:string[];due_date:string|null;adopted:boolean}
+export interface AiPlanDraft {id:string;turn_id:string;base_version:number;record_id?:string;legacy?:boolean;items:AiPlanItem[]}
+export interface AiConversation {source:Source;record_id:string;context_record_ids?:string[];wish_id?:string|null;plan_id?:string|null;current_plan?:{record:PlanRecord;stages:PlanStage[];tasks:PlanTask[]}|null;configured:boolean;status:'unconfigured'|'ready'|'running'|'failed';messages:AiMessage[];drafts:AiPlanDraft[];chosen_materials:AiMaterial[];budget:{month:string;limit_micro_usd:number;committed_micro_usd:number;remaining_micro_usd:number;confirmed_micro_usd:number;reserved_micro_usd:number;unknown_micro_usd:number;has_unknown:boolean;blocked:boolean}}
 export interface AiSendInput {op_id:string;content:string;attachment_ids:string[];allow_web:boolean;base_version:number}
 export interface AiSubmittedInput {content:string;attachment_ids:string[];text_edited:boolean;materials_edited:boolean;acknowledged:boolean}
-export interface AiInputDraft {content:string;attachment_ids:string[];allow_web:boolean;pending_request?:AiSendInput;pending_input?:AiSubmittedInput}
-export interface AiAdoptInput {op_id:string;draft_id:string;item_ids:string[];base_version:number;target_plan_id:string|null}
+export interface AiInputDraft {content:string;attachment_ids:string[];allow_web:boolean;proposal_draft_id?:string;selected_item_ids?:string[];item_edits?:Record<string,AiItemChanges>;pending_request?:AiSendInput;pending_input?:AiSubmittedInput}
+export type AiItemChanges=Partial<Pick<AiPlanItem,'title'|'body_markdown'|'target_date'|'open_questions_markdown'|'stage_key'|'position'|'assignee_ids'|'due_date'>>
+export interface AiAdoptInput {op_id:string;draft_id:string;item_ids:string[];base_version:number;target_plan_id:string|null;overrides?:{item_id:string;changes:AiItemChanges}[]}
 export interface AiAdoptReceipt {source:Source;receipt:{plan_id:string;adopted_item_ids:string[];record:PlanRecord}}
 const path=(recordId:string)=>`/plans/records/${encodeURIComponent(recordId)}/ai`
 async function checked<T extends {source:Source}>(promise:Promise<T>,source:Source):Promise<T>{const result=await promise;if(!sameSource(result.source,source))throw new ApiError(409,'response_source_mismatch');return result}
@@ -30,10 +31,11 @@ export const planAiApi={
 export const AI_CONTENT_LIMIT=8000,AI_MATERIAL_LIMIT=5
 export function validateAiInput(input:AiInputDraft):string{if([...input.content].length>AI_CONTENT_LIMIT)return '发言最多 8,000 字，请精简后再发送。';if(input.attachment_ids.length>AI_MATERIAL_LIMIT)return '每次最多选入 5 项资料，请取消部分选择。';return ''}
 export function supportedAiMaterial(file:PlanAttachment):boolean{return file.kind==='photo'&&['image/jpeg','image/png','image/webp'].includes(file.mime_type)||['application/pdf','text/plain'].includes(file.mime_type)}
-export function selectionWithStages(draft:AiPlanDraft,selected:string[]):AiPlanItem[]{
+export function selectionWithStages(draft:AiPlanDraft,selected:string[],edits:Record<string,AiItemChanges>={}):AiPlanItem[]{
  const ids=new Set(selected),byId=new Map(draft.items.map(item=>[item.id,item]))
- for(const id of selected){const item=byId.get(id);if(item?.kind==='task'&&item.stage_key){const stage=byId.get(item.stage_key);if(stage&&!stage.adopted)ids.add(stage.id)}}
- return draft.items.filter(item=>ids.has(item.id)&&!item.adopted)
+ if(selected.some(id=>{const item=byId.get(id);return item&&!item.adopted&&!item.blocked_reason})){const plan=draft.items.find(item=>item.kind==='plan'&&(item.operation??'create')==='create'&&!item.adopted&&!item.blocked_reason);if(plan)ids.add(plan.id)}
+ for(const id of selected){const original=byId.get(id),item=original?{...original,...edits[id]}:undefined;if(item?.kind==='task'&&item.stage_key){const stage=byId.get(item.stage_key);if(stage&&stage.kind==='stage'&&(stage.operation??'create')==='create'&&!stage.adopted&&!stage.blocked_reason)ids.add(stage.id)}}
+ return draft.items.filter(item=>ids.has(item.id)&&!item.adopted&&!item.blocked_reason)
 }
 export function aiBudgetNotice(budget:Pick<AiConversation['budget'],'blocked'>):string{return budget.blocked?'本月 AI 剩余额度不足，暂不能发起新请求；现有讨论、计划和输入保留。':''}
 export function aiCostNotice(value:Pick<AiConversation,'messages'|'budget'>):string{if(value.messages.some(message=>message.status==='ready'&&message.cost_status==='unknown'))return '讨论结果已保存，可正常查看和采纳；部分请求费用尚未确认，原预留继续占用额度，不代表已扣费。不会自动重新发送，新请求仍受剩余额度限制。';return value.budget.has_unknown?'有费用尚未确认，暂按原预留占用额度，不代表已扣费；剩余额度内可主动发起新请求。':''}

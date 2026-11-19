@@ -42,7 +42,8 @@ def messages(db,user_id,src):
 def payload(db,row):
     if row['dedup_key'].startswith('memo:'):
         from server.memos.notifications import payload as memo_payload
-        return {**memo_payload(row),'kind':'memo_reminder'}
+        value=memo_payload(db,row)
+        return {**value,'kind':'memo_reminder'} if value else None
     kind='monthly_report' if row['report_id'] else 'weekly_review'
     src={'scope':row['source_scope'],'family_id':row['family_id'],'relation_epoch':row['relation_epoch'] or 0}
     if kind=='weekly_review':
@@ -65,7 +66,8 @@ def resolve(db,user_id,row,src):
         if not same_source(row,src):fail('notification_unavailable',404)
         report=reports.authorize(db,row['report_id'],user_id)
         notice='报告已更新，现展示当前版本。' if report['data_version']!=row['data_version'] else ''
-        if report['status']!='ready':notice='报告正在更新或暂未完成，现展示当前状态。'
+        if report['status']=='stale':notice='账目有更新，现展示报告当前状态；请主动更新报告。'
+        elif report['status']!='ready':notice='报告正在更新或暂未完成，现展示当前状态。'
         return {'source':src,'message':report_message(report,src),'notice':notice}
     if row['source_scope']=='account' and row['dedup_key'].startswith('weekly:'):
         if unrated(db,user_id,src):return {'source':src,'message':weekly_message(row,src)}

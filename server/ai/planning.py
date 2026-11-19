@@ -1,4 +1,4 @@
-"""Source-bound conversation and explicit, atomic append-only adoption."""
+"""Source-bound conversation and explicit, atomic plan proposal adoption."""
 import hashlib
 import json
 import logging
@@ -8,8 +8,8 @@ from fastapi import HTTPException
 from server.accounting.db import connect
 from server.plans import service as plans
 from server.automation.providers import ProviderError
-from . import budget
-from .models import PlanningOutput
+from . import budget,proposals
+from .models import PlanningOutput,DraftItem
 
 MAX_PAYLOAD_BYTES=200_000
 MAX_MATERIAL_BYTES=2*1024*1024
@@ -40,7 +40,8 @@ def chosen(db,user,identity,ids):
 
 def _view(db,user,identity,provider):
     origin=plans.source(db,user);row=record(db,user,identity)
-    messages=[];turns=list(db.execute('SELECT t.*,u.display_name FROM ai_turns t JOIN users u ON u.id=t.user_id WHERE t.record_id=? ORDER BY t.created_at,t.rowid',(identity,)))
+    ctx=proposals.context(db,user,row);context_ids=ctx['ids'];placeholders=','.join('?' for _ in context_ids)
+    messages=[];turns=list(db.execute('SELECT t.*,u.display_name FROM ai_turns t JOIN users u ON u.id=t.user_id WHERE t.record_id IN ('+placeholders+') ORDER BY t.created_at,t.rowid',context_ids))
     latest=[]
     for turn in turns:
         cost=db.execute('SELECT status FROM ai_costs WHERE id=?',(turn['cost_id'],)).fetchone() if turn['cost_id'] else None
@@ -53,8 +54,24 @@ def _view(db,user,identity,provider):
         if turn['response_json']:
             response=json.loads(turn['response_json'])
             messages.append({'id':turn['id']+'-reply','role':'assistant','author_id':None,'author_name':'AI','content':response['message'],'created_at':turn['created_at'],'status':state,'error':error,'cost_status':cost_status,'sources':response.get('sources',[]),'chosen_materials':materials})
-    drafts=[{'id':r['id'],'turn_id':r['turn_id'],'base_version':r['base_version'],'items':json.loads(r['items_json'])} for r in db.execute("SELECT d.* FROM ai_drafts d JOIN ai_turns t ON t.id=d.turn_id WHERE d.record_id=? AND t.status='ready' ORDER BY d.created_at,d.rowid",(identity,))]
-    return {'source':origin,'record_id':identity,'configured':provider is not None,'status':('unconfigured' if provider is None else (messages[-1]['status'] if messages else 'ready')),'messages':messages,'drafts':drafts,'chosen_materials':latest,'budget':budget.snapshot(db)}
+    drafts=[]
+    for r in db.execute("SELECT d.* FROM ai_drafts d JOIN ai_turns t ON t.id=d.turn_id WHERE d.record_id IN ("+placeholders+") AND t.status='ready' ORDER BY d.created_at,d.rowid",context_ids):
+        items=json.loads(r['items_json']);legacy=any('operation' not in item for item in items)
+        visible=[]
+        for item in items:
+            if legacy:
+                normalized=DraftItem.model_validate({k:v for k,v in item.items() if k in DraftItem.model_fields}).model_dump(mode='json')
+                normalized.update(item,before={},after={k:normalized[k] for k in proposals.FIELDS[item['kind']]},blocked_reason=None)
+            else:
+                normalized={k:v for k,v in item.items() if k!='snapshot'}
+                if item['operation']=='delete' and item['kind']=='task' and not item['adopted']:
+                    task=next((t for t in ctx['tasks'] if t['id']==item['target_id']),None)
+                    normalized['blocked_reason']='ai_draft_stale' if task is None else 'task_completed' if task['completed'] else 'creator_required' if task['author_id']!=user else None
+            visible.append(normalized)
+        items=visible
+        drafts.append({'id':r['id'],'turn_id':r['turn_id'],'record_id':r['record_id'],'base_version':r['base_version'],'items':items,'legacy':legacy})
+    current_plan={'record':plans.dto(db,'plan',ctx['plan']),'stages':ctx['stages'],'tasks':ctx['tasks']} if ctx['plan'] else None
+    return {'source':origin,'record_id':identity,'context_record_ids':context_ids,'wish_id':ctx['wish']['id'] if ctx['wish'] else None,'plan_id':ctx['plan']['id'] if ctx['plan'] else None,'current_plan':current_plan,'configured':provider is not None,'status':('unconfigured' if provider is None else (messages[-1]['status'] if messages else 'ready')),'messages':messages,'drafts':drafts,'chosen_materials':latest,'budget':budget.snapshot(db)}
 
 def read(db,user,identity,provider):
     db.execute('BEGIN')
@@ -75,16 +92,18 @@ def send(db,user,identity,body,provider,db_path):
         plans.version(db,parent['kind'],parent,body.base_version)
         materials=chosen(db,user,identity,[str(v) for v in body.attachment_ids])
         metadata=[{k:v for k,v in m.items() if k!='data'} for m in materials]
+        ctx=proposals.context(db,user,parent);context_ids=ctx['ids'];placeholders=','.join('?' for _ in context_ids)
         history=[]
-        for turn in db.execute("SELECT content,response_json FROM ai_turns WHERE record_id=? AND status='ready' ORDER BY created_at,rowid",(identity,)):
-            history.append({'role':'user','content':turn['content']})
-            if turn['response_json']:history.append({'role':'assistant','content':json.loads(turn['response_json'])['message']})
-        stages=[];tasks=[]
-        if parent['kind']=='plan':
-            stages=[plans.dto(db,'stage',r) for r in db.execute('SELECT * FROM plan_stages WHERE plan_id=? AND deleted=0',(identity,))]
-            tasks=[{k:v for k,v in plans.dto(db,'task',r).items() if k!='attachments'} for r in db.execute('SELECT * FROM plan_tasks WHERE plan_id=? AND deleted=0',(identity,))]
+        for turn in db.execute("SELECT t.id,t.user_id,t.content,t.response_json,u.display_name FROM ai_turns t JOIN users u ON u.id=t.user_id WHERE t.record_id IN ("+placeholders+") AND t.status='ready' ORDER BY t.created_at,t.rowid",context_ids):
+            history.append({'role':'user','author_id':turn['user_id'],'author_name':turn['display_name'],'content':turn['content']})
+            if turn['response_json']:
+                reply=json.loads(turn['response_json'])
+                draft=db.execute('SELECT items_json FROM ai_drafts WHERE turn_id=?',(turn['id'],)).fetchone()
+                proposal=json.loads(draft['items_json']) if draft else reply.get('items',[])
+                history.append({'role':'assistant','author_name':'AI','content':reply['message'],'proposal':[{k:v for k,v in i.items() if k!='snapshot'} for i in proposal]})
         assignable=[dict(r) for r in db.execute('SELECT id,display_name FROM users WHERE id=?',(user,))] if parent['scope']=='private' else [dict(r) for r in db.execute('SELECT u.id,u.display_name FROM users u JOIN family_members m ON m.user_id=u.id WHERE m.family_id=? AND m.active=1',(origin['family_id'],))]
-        payload={'kind':'planning','record':{k:parent[k] for k in ('id','kind','title','body_markdown','target_date')},'stages':stages,'tasks':tasks,'history':history,'content':body.content,'allow_web':body.allow_web,'assignable_users':assignable,'chosen_materials':metadata}
+        record_keys=('id','kind','title','body_markdown','target_date','open_questions_markdown','version')
+        payload={'kind':'planning','record':{k:parent[k] for k in record_keys},'wish':{k:ctx['wish'][k] for k in record_keys} if ctx['wish'] else None,'plan':{k:ctx['plan'][k] for k in record_keys} if ctx['plan'] else None,'stages':ctx['stages'],'tasks':ctx['tasks'],'history':history,'content':body.content,'allow_web':body.allow_web,'assignable_users':assignable,'chosen_materials':metadata}
         if len(plans.canonical(payload).encode())+sum(len(m['data']) for m in materials if m['mime_type']=='text/plain')>MAX_PAYLOAD_BYTES:plans.fail('ai_input_too_large',413)
         payload['materials']=materials
         error=None
@@ -114,10 +133,14 @@ def send(db,user,identity,body,provider,db_path):
         if usage is None and isinstance(response,dict):usage=response.get('usage')
         raw={k:v for k,v in response.items() if k not in ('usage','sources')}
         output=PlanningOutput.model_validate(raw).model_dump(mode='json')
-        ids=[item['id'] for item in output['items']]
-        stage_ids={item['id'] for item in output['items'] if item['kind']=='stage'}
         allowed={u['id'] for u in assignable}
-        if len(ids)!=len(set(ids)) or any((i['kind']=='task' and i['stage_key'] not in stage_ids) or (i['kind']=='stage' and i['stage_key'] is not None) or not set(i['assignee_ids'])<=allowed for i in output['items']):raise ProviderError('invalid',usage)
+        legacy=not any('operation' in i for i in raw.get('items',[]))
+        if legacy:
+            keys={'id','kind','title','body_markdown','stage_key','assignee_ids','due_date'}
+            output['items']=[{k:v for k,v in item.items() if k in keys} for item in output['items']]
+            ids=[i['id'] for i in output['items']];stage_ids={i['id'] for i in output['items'] if i['kind']=='stage'}
+            if len(ids)!=len(set(ids)) or any(i['kind'] not in {'stage','task'} or (i['kind']=='task' and i['stage_key'] not in stage_ids) or (i['kind']=='stage' and i['stage_key'] is not None) or not set(i['assignee_ids'])<=allowed for i in output['items']):raise ValueError('invalid_legacy')
+        else:output['items']=proposals.capture(output['items'],ctx,user,allowed)
         sources=getattr(response,'sources',None) or (response.get('sources',[]) if isinstance(response,dict) else [])
         sources=[s for s in sources if isinstance(s,dict) and isinstance(s.get('url'),str) and s['url'].startswith(('https://','http://'))][:30] if body.allow_web else []
     except ProviderError as exc:
@@ -171,7 +194,9 @@ def send(db,user,identity,body,provider,db_path):
     return read(db,user,identity,provider)
 
 def adopt(db,user,identity,body):
-    data=body.model_dump(mode='json');request_hash=digest(data)
+    data=body.model_dump(mode='json')
+    if not data['overrides']:data.pop('overrides')
+    request_hash=digest(data)
     db.execute('BEGIN IMMEDIATE')
     try:
         origin=plans.source(db,user);parent=record(db,user,identity);plans.assert_writable_parent(db,user,parent['kind'],parent)
@@ -180,7 +205,8 @@ def adopt(db,user,identity,body):
             if old['record_id']!=identity or json.loads(old['source_json'])!=origin:plans.fail('plan_not_found',404)
             if old['request_hash']!=request_hash:plans.fail('op_id_reused')
             receipt=json.loads(old['receipt_json']);plans.require(db,user,'plan',receipt['plan_id']);db.commit();return {'source':origin,'receipt':receipt}
-        draft=db.execute('SELECT d.*,t.source_json,t.status FROM ai_drafts d JOIN ai_turns t ON t.id=d.turn_id WHERE d.id=? AND d.record_id=?',(str(body.draft_id),identity)).fetchone()
+        context_ids=proposals.context(db,user,parent)['ids'];placeholders=','.join('?' for _ in context_ids)
+        draft=db.execute('SELECT d.*,t.source_json,t.status FROM ai_drafts d JOIN ai_turns t ON t.id=d.turn_id WHERE d.id=? AND d.record_id IN ('+placeholders+')',(str(body.draft_id),*context_ids)).fetchone()
         if not draft:plans.fail('ai_draft_not_found',404)
         if draft['status']!='ready' or json.loads(draft['source_json'])['restore_id']!=origin['restore_id']:plans.fail('ai_draft_stale')
         target=None
@@ -196,7 +222,13 @@ def adopt(db,user,identity,body):
         if target:
             plans.assert_writable_parent(db,user,'plan',target);plans.version(db,'plan',target,body.base_version)
         else:plans.version(db,parent['kind'],parent,body.base_version)
-        items=json.loads(draft['items_json']);by_id={i['id']:i for i in items};selected=[str(v) for v in body.item_ids]
+        items=json.loads(draft['items_json'])
+        if items and 'operation' in items[0]:
+            receipt=proposals.adopt(db,user,parent,target,draft,items,body)
+            db.execute('INSERT INTO ai_adoptions(user_id,op_id,record_id,request_hash,source_json,receipt_json) VALUES(?,?,?,?,?,?)',(user,str(body.op_id),identity,request_hash,plans.canonical(origin),plans.canonical(receipt)))
+            db.commit();return {'source':origin,'receipt':receipt}
+        if body.overrides:plans.fail('ai_invalid_selection',422)
+        by_id={i['id']:i for i in items};selected=[str(v) for v in body.item_ids]
         if len(selected)!=len(set(selected)) or any(i not in by_id for i in selected):plans.fail('ai_invalid_selection',422)
         # Auto-include the minimal required stage containers, shown by frontend preview.
         for item_id in list(selected):
@@ -215,7 +247,7 @@ def adopt(db,user,identity,body):
         for item in sorted(fresh,key=lambda i:i['kind']!='stage'):
             eid=str(uuid4());plans.unique_id(db,eid)
             if item['kind']=='stage':
-                db.execute('INSERT INTO plan_stages(id,plan_id,title,position,version) VALUES(?,?,?,?,1)',(eid,plan_id,item['title'],position));position+=1
+                db.execute('INSERT INTO plan_stages(id,plan_id,title,body_markdown,position,version) VALUES(?,?,?,?,?,1)',(eid,plan_id,item['title'],item['body_markdown'],position));position+=1
             else:
                 stage=by_id[item['stage_key']]
                 if not stage.get('entity_id'):plans.fail('ai_invalid_selection',422)

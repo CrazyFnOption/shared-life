@@ -17,7 +17,7 @@ test('切号、恢复和范围变化均拒绝迟到报告，包括同月同ID',(
 test('账目/本机归属变化与重新同步更换在线报告上下文',()=>{
  const before=reportContext(account);expect(reportContext({...account,synced_at:'later'})).not.toBe(before)
  expect(reportContext({...account,local:[{id:'e',owner_id:'a',scope:'private',version:1,amount_cents:100,purpose:'虚构',location:'',occurred_at:'now'}]})).not.toBe(before)
- expect(reportStatus('unconfigured')).toBe('等待配置模型');expect(reportStatus('stale')).toContain('过期')
+ expect(reportStatus('unconfigured')).toBe('等待配置模型');expect(reportStatus('stale')).toContain('主动更新')
 })
 
 test('月报费用未知、额度不足和恢复暂停均显示各自原因，保留账目评价而不展示机器码',()=>{for(const code of ['ai_budget_unknown','ai_budget_exceeded','ai_paused']){expect(reportErrorMessage(code)).not.toContain(code);expect(reportErrorMessage(code)).toContain('账目和评价保留');}expect(reportErrorMessage('ai_budget_unknown')).toContain('不代表已扣费');expect(reportErrorMessage('ai_budget_unknown')).toContain('剩余额度内可继续');expect(reportErrorMessage('ai_budget_unknown')).not.toContain('额度不足');expect(reportErrorMessage('ai_budget_exceeded')).toContain('额度不足');expect(reportErrorMessage('ai_paused')).toContain('恢复后 AI 已暂停');})

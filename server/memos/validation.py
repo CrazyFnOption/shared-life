@@ -24,6 +24,7 @@ def validate(db):
         try:
             models.MemoData.model_validate(data)
             if 'archive_state_json' in row.keys():models.ArchiveState.model_validate(json.loads(row['archive_state_json']))
+            if 'checklist_json' in row.keys():models.Checklist.model_validate(json.loads(row['checklist_json']))
         except Exception:bad()
         rules=data['reminders']
         if len({r['id'] for r in rules})!=len(rules) or any(not set(r['recipient_ids'])<=people for r in rules):bad()
@@ -86,6 +87,12 @@ def validate(db):
     for row in db.execute('SELECT * FROM memo_reminder_events'):
         memo=memos.get(row['memo_id'])
         if not memo or (memo['scope'],memo['namespace'])!=(row['scope'],row['namespace']) or row['user_id'] not in people:bad()
+        if 'delivery_revision' in row.keys():
+            if type(row['delivery_revision'])!=int or row['delivery_revision']<0:bad()
+            if bool(row['delivery_at'])!=bool(row['delivery_revision']):bad()
+            if row['delivery_at']:
+                from datetime import datetime
+                if datetime.fromisoformat(row['delivery_at']).tzinfo is None:bad()
         if len(row['rule_signature'])!=64 or row['record_version']<1:bad()
         if row['status']=='ready' and row['source_restore_id']!=restore:bad()
         validate_relation_source(db,row['user_id'],row['scope'],row['namespace'] if row['scope']=='shared' else None,row['relation_epoch'])
@@ -93,5 +100,8 @@ def validate(db):
         if not ns_valid(row['scope'],row['namespace']) or row['scope']=='private' and row['user_id']!=row['namespace']:bad()
 
     for row in db.execute("SELECT * FROM notification_outbox WHERE dedup_key LIKE 'memo:%'"):
-        event=db.execute('SELECT * FROM memo_reminder_events WHERE id=?',(row['dedup_key'][5:],)).fetchone()
+        from .events import parse_message_identity
+        event_id,revision=parse_message_identity(row['dedup_key'][5:])
+        event=db.execute('SELECT * FROM memo_reminder_events WHERE id=?',(event_id,)).fetchone()
+        if revision is None or event and revision>event['delivery_revision']:bad()
         if not event or row['protocol_version']!=2 or row['user_id']!=event['user_id'] or row['source_scope']!=event['scope'] or row['family_id']!=(event['namespace'] if event['scope']=='shared' else None) or row['relation_epoch']!=event['relation_epoch'] or row['source_restore_id']!=event['source_restore_id'] or row['data_version']!=event['rule_signature']:bad()

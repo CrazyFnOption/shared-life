@@ -102,7 +102,7 @@ def test_legacy_report_task_and_notification_versions_migrate_independently(tmp_
                 assert rendered['status'] == 'ready'
                 assert rendered['content'] == json.loads(case['report']['content_json'])
             else:
-                assert rendered['content'] is None
+                assert rendered['content'] == (json.loads(row['content_json']) if row['content_json'] else None)
                 if not case['report_fresh'] or case['status'] == 'stale':
                     assert rendered['status'] == 'stale'
             task = db.execute('SELECT * FROM report_tasks WHERE report_id=?', (case['id'],)).fetchone()

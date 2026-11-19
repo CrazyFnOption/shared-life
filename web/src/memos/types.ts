@@ -1,5 +1,5 @@
 import type { MemoOccurrence } from './calendarCache'
-import type { MemoOperation, MemoReminder, MemoRecurrence, MemoSchedule } from './domain'
+import type { ChecklistItem, MemoChecklist, MemoOperation, MemoReminder, MemoRecurrence, MemoSchedule } from './domain'
 import type { Source } from '../types'
 
 /** Presentation contracts only. The transport and IDB contracts belong to the host. */
@@ -22,6 +22,8 @@ export interface MemoAttachmentView {
   error?: string
 }
 interface RecordView {
+  snoozed_occurrences?:{occurrence_at:string;delivery_at:string}[]
+  checklist?: MemoChecklist
   id: string
   version: number
   title: string
@@ -71,7 +73,12 @@ export interface ScheduleView extends RecordView {
   end_time: string | null
 }
 export type MemoRecordView = MemoView | ScheduleView
+export interface MemoQuickReminder { amount: number; unit: 'minute' | 'hour' | 'day' | 'week' }
 export interface MemoDraft {
+  checklist_items?: ChecklistItem[]
+  checklist_checked_ids?:string[]
+  checklist_checks?:{item_id:string;checked:boolean}[]
+  checklist_occurrence_at?:string
   source?: Source
   id?: string
   base_version: number
@@ -89,6 +96,8 @@ export interface MemoDraft {
   attachments: MemoAttachmentView[]
   reminders?: MemoReminder[]
   recurrence?: MemoRecurrence | null
+  /** Session-only choice; frozen to an absolute reminder when submitting. */
+  quick_reminder?: MemoQuickReminder
 }
 export interface MemoOperationCommand extends MemoCommandOrigin { operation: MemoOperation }
 export interface MemoCommandOrigin { request_id: string; source: Source }
@@ -105,5 +114,5 @@ export interface MemoCommandResult extends MemoCommandOrigin {
 export interface MemoDraftChange { source: Source; draft: MemoDraft | null }
 
 export function copyDraft(draft: MemoDraft): MemoDraft {
-  return { ...draft, source:draft.source?{...draft.source}:undefined, attachments: draft.attachments.map(file => ({ ...file })),reminders:draft.reminders?.map(reminder=>({...reminder,recipient_ids:[...reminder.recipient_ids]})),recurrence:draft.recurrence?{...draft.recurrence,...(draft.recurrence.weekdays?{weekdays:[...draft.recurrence.weekdays]}:{}),...(draft.recurrence.month_days?{month_days:[...draft.recurrence.month_days]}:{})}:null }
+  return { ...draft, checklist_items:draft.checklist_items?.map(item=>({...item})), checklist_checked_ids:draft.checklist_checked_ids?[...draft.checklist_checked_ids]:undefined,checklist_checks:draft.checklist_checks?.map(check=>({...check})), source:draft.source?{...draft.source}:undefined, attachments: draft.attachments.map(file => ({ ...file })),quick_reminder:draft.quick_reminder?{...draft.quick_reminder}:undefined,reminders:draft.reminders?.map(reminder=>({...reminder,recipient_ids:[...reminder.recipient_ids]})),recurrence:draft.recurrence?{...draft.recurrence,...(draft.recurrence.weekdays?{weekdays:[...draft.recurrence.weekdays]}:{}),...(draft.recurrence.month_days?{month_days:[...draft.recurrence.month_days]}:{})}:null }
 }

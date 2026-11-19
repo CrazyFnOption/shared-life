@@ -27,6 +27,7 @@ class Content(Model):
         return v
 
 class RecordData(Content):
+    open_questions_markdown: str = Field(default='',max_length=10000)
     wish_kind: Literal['生活愿景','未来旅行','想要的东西',''] = ''
     target_date: date | None = None
 
@@ -37,6 +38,12 @@ class StageData(Model):
     plan_id: UUID
     title: str = Field(min_length=1,max_length=200)
     position: int = Field(ge=0,le=1000000,strict=True)
+    body_markdown: str = ''
+    @field_validator('body_markdown')
+    @classmethod
+    def body_limit(cls,v):
+        if len(v.encode())>200*1024:raise ValueError('Body exceeds 200 KiB')
+        return v
     @field_validator('title',mode='before')
     @classmethod
     def trim(cls,v):return v.strip() if isinstance(v,str) else v

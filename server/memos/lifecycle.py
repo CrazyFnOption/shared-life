@@ -45,7 +45,8 @@ def occurrence_day(record,requested,now):
     if not requested:return None
     from .service import fail
     if record['kind']=='schedule' and any(item['start_date']==requested for item in record.get('archived_occurrences',[])):return requested
-    if not record['recurrence']:fail('occurrence_requires_recurrence',422)
+    # Old calendar queues also include a date for one-time reminders.
+    if not record['recurrence']:return None
     if record['kind']!='schedule':fail('occurrence_requires_schedule',422)
     day=date.fromisoformat(requested)
     if day not in dates(record['recurrence'],day,day):fail('invalid_occurrence',422)

@@ -156,7 +156,10 @@ def check_assignees(db,user_id,ids,existing=()):
 def apply(db,user_id,operation):
     try:data=validate_data(operation)
     except ValueError:fail('invalid_plan_operation',422)
-    payload=operation.model_dump(mode='json');payload['data']=data
+    payload=operation.model_dump(mode='json');payload['data']=dict(data)
+    # Empty added fields keep pre-schema12 operation receipts replayable.
+    if operation.entity_type=='stage' and 'body_markdown' not in operation.data:payload['data'].pop('body_markdown',None)
+    if 'open_questions_markdown' not in operation.data:payload['data'].pop('open_questions_markdown',None)
     request_hash=hashlib.sha256(canonical(payload).encode()).hexdigest()
     db.execute('BEGIN IMMEDIATE')
     try:
@@ -185,17 +188,20 @@ def apply(db,user_id,operation):
                 if existing:fail('wish_already_planned',plan_id=existing['id'])
             if create:
                 timestamp=now()
-                db.execute('INSERT INTO plan_records(id,kind,scope,namespace,author_id,updated_by,title,body_markdown,wish_kind,target_date,source_wish_id,version,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',(identity,entity,origin['scope'],namespace(origin),user_id,user_id,data['title'],data['body_markdown'],data['wish_kind'],data['target_date'],source_wish['id'] if source_wish else None,1,timestamp,timestamp))
-            else:bump(db,entity,row,{k:data[k] for k in ('title','body_markdown','wish_kind','target_date')},user_id)
+                db.execute('INSERT INTO plan_records(id,kind,scope,namespace,author_id,updated_by,title,body_markdown,wish_kind,target_date,source_wish_id,version,created_at,updated_at,open_questions_markdown) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',(identity,entity,origin['scope'],namespace(origin),user_id,user_id,data['title'],data['body_markdown'],data['wish_kind'],data['target_date'],source_wish['id'] if source_wish else None,1,timestamp,timestamp,data['open_questions_markdown']))
+            else:
+                fields={k:data[k] for k in ('title','body_markdown','wish_kind','target_date')}
+                if 'open_questions_markdown' in operation.data:fields['open_questions_markdown']=data['open_questions_markdown']
+                bump(db,entity,row,fields,user_id)
             manifest(db,user_id,identity,data['attachments'])
         elif entity=='wish' and kind=='realized':bump(db,entity,row,{'realized':int(data['realized'])},user_id)
         elif entity in {'wish','plan'} and kind=='archive':bump(db,entity,row,{'archived':int(data['archived'])},user_id)
         elif entity=='stage' and kind in {'create','update'}:
             parent=require(db,user_id,'plan',data['plan_id']);assert_writable_parent(db,user_id,'plan',parent)
-            if create:db.execute('INSERT INTO plan_stages(id,plan_id,title,position,version) VALUES(?,?,?,?,1)',(identity,data['plan_id'],data['title'],data['position']))
+            if create:db.execute('INSERT INTO plan_stages(id,plan_id,title,body_markdown,position,version) VALUES(?,?,?,?,?,1)',(identity,data['plan_id'],data['title'],data['body_markdown'],data['position']))
             else:
                 if row['plan_id']!=data['plan_id']:fail('plan_not_found',404)
-                bump(db,entity,row,{'title':data['title'],'position':data['position']},user_id)
+                bump(db,entity,row,{'title':data['title'],'body_markdown':data['body_markdown'] if 'body_markdown' in operation.data else row['body_markdown'],'position':data['position']},user_id)
         elif entity=='task' and kind in {'create','update'}:
             parent=require(db,user_id,'plan',data['plan_id']);assert_writable_parent(db,user_id,'plan',parent)
             stage=require(db,user_id,'stage',data['stage_id'])

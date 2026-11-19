@@ -71,6 +71,8 @@ def create_app(
 
     @app.exception_handler(RequestValidationError)
     async def invalid_request(request: Request, error: RequestValidationError):
+        if request.url.path in {"/api/push-subscriptions/check", "/api/v2/push-subscriptions/check"}:
+            return JSONResponse(status_code=422, content={"detail": {"code": "invalid_push_check_request"}})
         if request.url.path in {"/api/auth/password", "/api/auth/register", "/api/auth/login"}:
             # FastAPI's default validation response includes the rejected input.
             return JSONResponse(status_code=422, content={"detail": {"code": "invalid_password_request"}})
@@ -149,7 +151,7 @@ def create_app(
                 db.expected_restore = supplied
         if v2:
             request.state.source = {'user_id':user['id'],'restore_id':current['restore_id']}
-            account_domain = path in {'/api/context','/api/account/default-scope','/api/v2/families','/api/v2/push-subscriptions'} or (path == '/api/v2/family-invites' and request.method=='GET') or (path.startswith('/api/v2/family-invites/') and path.rsplit('/',1)[-1] in {'accept','reject'})
+            account_domain = path in {'/api/context','/api/account/default-scope','/api/v2/families','/api/v2/push-subscriptions','/api/v2/push-subscriptions/check'} or (path == '/api/v2/family-invites' and request.method=='GET') or (path.startswith('/api/v2/family-invites/') and path.rsplit('/',1)[-1] in {'accept','reject'})
             if not account_domain:
                 scope = request.headers.get('x-scope')
                 fid = request.headers.get('x-family-id')
@@ -443,10 +445,22 @@ def create_app(
         db.execute('BEGIN')
         if db.protocol==2:
             families.require_scope(db,user['id'],scope)
-        rows = db.execute('SELECT * FROM reports WHERE scope=? AND owner_id=? ORDER BY month DESC,id', (scope, families.current_id(db,user['id']) if scope=='shared' else user['id']))
+        rows = db.execute("SELECT * FROM reports WHERE scope=? AND owner_id=? AND status!='deleted' ORDER BY month DESC,id", (scope, families.current_id(db,user['id']) if scope=='shared' else user['id']))
         result = {'reports': [reports.read(db,dict(row)) for row in rows]}
         db.commit()
         return result
+
+    @app.post("/api/reports")
+    def generate_report(body: automation_api.GenerateReport, db: Database, user: ExpectedUser):
+        db.execute('BEGIN IMMEDIATE')
+        result=reports.generate(db,user['id'],body.scope,body.month,worker.clock())
+        db.commit();return result
+
+    @app.delete("/api/reports/{report_id}", status_code=204)
+    def delete_report(report_id: UUID, db: Database, user: ExpectedUser):
+        db.execute('BEGIN IMMEDIATE')
+        reports.delete(db,str(report_id),user['id'])
+        db.commit();return Response(status_code=204)
 
     @app.get("/api/reports/{report_id}")
     def report_detail(report_id: UUID, db: Database, user: ExpectedUser):
@@ -462,9 +476,19 @@ def create_app(
         if row['scope']=='shared':
             families.require_shared(db,user['id'],row['owner_id'])
         current=reports.version(reports.snapshot(db,row['scope'],row['owner_id'],row['month']))
+        task=db.execute('SELECT * FROM report_tasks WHERE report_id=?',(row['id'],)).fetchone()
+        if row['status']=='ready' and row['data_version']==current or row['status'] in ('pending','running') and task and task['target_version']==current:
+            result=reports.read(db,row,detail=True)
+            db.commit();return result
         reports.queue(db,row['id'],current,when=worker.clock().timestamp())
-        db.execute("UPDATE reports SET status='pending',content_json=NULL,error=NULL,data_version=? WHERE id=?",(current,row['id']))
+        db.execute("UPDATE reports SET status='pending',error=NULL,data_version=? WHERE id=?",(current,row['id']))
         result=reports.read(db,dict(db.execute('SELECT * FROM reports WHERE id=?',(row['id'],)).fetchone()),detail=True)
+        db.commit();return result
+
+    @app.post("/api/push-subscriptions/check")
+    def check_push_subscription(body: automation_api.Endpoint, db: Database, user: ExpectedUser):
+        db.execute('BEGIN')
+        result=automation_api.check_subscription(db,user['id'],body.endpoint)
         db.commit();return result
 
     @app.post("/api/push-subscriptions")

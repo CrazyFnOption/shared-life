@@ -50,3 +50,12 @@ test.each([false,true])('foreground写计数等待响应正文真正settle，失
  if(fail){reject(new Error('decode failed'));await expect(pending).rejects.toThrow('decode failed')}else{release({id:'image'});await expect(pending).resolves.toEqual({id:'image'})}
  expect(apiWrites.value).toBe(0)
 })
+
+test('本机端点核对使用账号域POST JSON，不把endpoint放URL或携带家庭来源',async()=>{
+ const calls:{url:string;options:RequestInit}[]=[];vi.stubGlobal('fetch',vi.fn(async(url:string,options:RequestInit)=>{calls.push({url,options});return apiResponse('{"registered":true,"active":true,"provider":"FCM","endpoint_fingerprint":"123456abcdef"}',options)}))
+ await expect(api.checkPushSubscription(p,'https://fcm.googleapis.com/fictional-token')).resolves.toMatchObject({registered:true,active:true})
+ expect(calls[0]!.url).toBe('/api/v2/push-subscriptions/check');expect(calls[0]!.options.method).toBe('POST')
+ expect(JSON.parse(calls[0]!.options.body as string)).toEqual({endpoint:'https://fcm.googleapis.com/fictional-token'})
+ expect((calls[0]!.options.headers as Record<string,string>)['X-Family-Id']).toBeUndefined()
+ expect((calls[0]!.options.headers as Record<string,string>)['X-Expected-User']).toBe(p.user_id)
+})

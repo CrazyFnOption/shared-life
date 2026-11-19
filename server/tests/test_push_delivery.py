@@ -59,6 +59,7 @@ def test_https_subject_with_port_signs_using_original_key_and_retains_push(trans
     assert len(calls) == 1
     _, request = calls[0]
     assert str(request['headers']['ttl']) == '86400'
+    assert request['headers']['Urgency'] == 'high'
     assert request['headers']['content-encoding'] == 'aes128gcm'
     assert request['timeout'] == 20
     token = request['headers']['Authorization'].split('t=', 1)[1].split(',', 1)[0]

@@ -110,8 +110,8 @@ def test_multi_recorder_one_approval_each_and_unanimous_atomic_history_reports(t
         assert len(history)==2 and history[-1]['after']==changed
     assert current(d,outside)==outside
     with connect(path) as db:
-        assert db.execute('SELECT status,content_json FROM reports WHERE owner_id=?',(fid,)).fetchone()[:]==('stale',None)
-        assert db.execute('SELECT count(*) FROM report_tasks').fetchone()[0]==1
+        assert db.execute('SELECT status,content_json FROM reports WHERE owner_id=?',(fid,)).fetchone()[:]==('stale','{}')
+        assert db.execute('SELECT count(*) FROM report_tasks').fetchone()[0]==0
     assert a.post('/api/category-changes',json=body).json()['change']['status']=='applied'
 
 

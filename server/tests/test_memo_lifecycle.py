@@ -44,6 +44,41 @@ def test_completion_archives_immediately_persists_and_reopens_without_second_con
     assert reopened['body_markdown']==m['body_markdown']
 
 
+@pytest.mark.parametrize('kind',['memo','schedule'])
+def test_one_time_legacy_date_completion_replays_unchanged_and_archives_record(home,monkeypatch,kind):
+    path,app,(a,b,c)=home;day='2090-11-05';clock(monkeypatch,calendar.anchor(day,'08:00'))
+    data={'kind':kind,'title':'一次性提醒','body_markdown':'保留正文','attachments':[],
+          'reminders':[{'id':str(uuid4()),'at':day+'T09:00:00+08:00'}]}
+    if kind=='schedule':data['schedule']={'start_date':day,'start_time':'09:00'}
+    item=saved(op(a,'memo',str(uuid4()),'create',data))
+    payload=json.dumps({'op_id':str(uuid4()),'entity_type':'memo','entity_id':item['id'],
+                        'kind':'complete','base_version':1,'data':{'completed':True,'occurrence_date':day}}).encode()
+    request_headers={**headers(a),'Content-Type':'application/json'}
+    response=a.post('/api/v2/memos/operations',headers=request_headers,content=payload)
+    done=saved(response)
+    assert done['completed'] and done['archived'] and done['version']==2
+    assert not done['archived_occurrences'] and not done['reminder_occurrences']
+    assert detail(a,item)==done and done['body_markdown']==data['body_markdown']
+    assert a.post('/api/v2/memos/operations',headers=request_headers,content=payload).json()==response.json()
+    reopened=saved(op(a,'memo',item['id'],'complete',{'completed':False,'occurrence_date':day},2))
+    assert not reopened['completed'] and not reopened['archived']
+    archived=saved(op(a,'memo',item['id'],'archive',{'archived':True,'occurrence_date':day},3))
+    assert archived['archived'] and not archived['completed']
+    restored=saved(op(a,'memo',item['id'],'archive',{'archived':False,'occurrence_date':day},4))
+    assert not restored['archived'] and not restored['completed']
+
+
+def test_saved_legacy_occurrence_keeps_priority_after_recurrence_removed(home,monkeypatch):
+    path,app,(a,b,c)=home;day='2090-11-05';clock(monkeypatch,calendar.anchor(day,'10:00'))
+    item,data=schedule(a,repeat=True,start_time='09:00')
+    done=saved(op(a,'memo',item['id'],'complete',{'completed':True,'occurrence_date':day},1))
+    changed=saved(op(a,'memo',item['id'],'update',{**data,'recurrence':None},2))
+    assert changed['archived_occurrences']==done['archived_occurrences']
+    restored=saved(op(a,'memo',item['id'],'archive',{'archived':False,'occurrence_date':day},3))
+    assert restored['archived_occurrences'][0]['archived_at'] is None
+    assert restored['archived_occurrences'][0]['suppressed'] and not restored['archived']
+
+
 @pytest.mark.parametrize('schedule_data,before,boundary',[
     ({'start_date':'2090-11-05','end_date':None,'start_time':'09:00','end_time':None},'2090-11-05T23:59:59+08:00','2090-11-06T00:00:00+08:00'),
     ({'start_date':'2090-11-05','end_date':'2090-11-06','start_time':None,'end_time':None},'2090-11-06T23:59:59+08:00','2090-11-07T00:00:00+08:00'),

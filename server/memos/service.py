@@ -60,6 +60,8 @@ def memo_dto(db,row):
     result.update(family_id=row['namespace'] if row['scope']=='shared' else None,attachments=descriptors(db,row['id']))
     result.update({key:bool(row[key]) for key in ('completed','archived','deleted')})
     result['completed_at']=row['completed_at']
+    result['checklist']=json.loads(row['checklist_json'])
+    result['snoozed_occurrences']=[dict(item) for item in db.execute("SELECT DISTINCT occurrence AS occurrence_at,delivery_at FROM memo_reminder_events WHERE memo_id=? AND delivery_revision>0 AND status='ready' ORDER BY occurrence",(row['id'],))]
     result.update({key:json.loads(row[key+'_json']) if row[key+'_json'] else None for key in ('schedule','reminders','recurrence')})
     from .lifecycle import metadata
     result.update(metadata(db,row))
@@ -235,12 +237,37 @@ def apply_record(db,user_id,body,src):
                 # Preserve archived dates/timestamps when editing the future series.
                 lifecycle['occurrences']={day:entry for day,entry in lifecycle.get('occurrences',{}).items() if entry.get('archived_at')};changed=True
             if changed:save(db,entity_id,lifecycle)
+        from .checklist import edit as edit_checklist,save as save_checklist
+        checklist=edit_checklist(db,existing,data['checklist_items'])
+        if checklist is not None:save_checklist(db,entity_id,checklist)
+        if data['checklist_checks']:
+            from .checklist import check,completion_scope
+            updated=db.execute('SELECT * FROM memos WHERE id=?',(entity_id,)).fetchone();record=memo_dto(db,updated)
+            target=data['checklist_occurrence_at']
+            if kind=='create' and target is None and completion_scope(record)=='occurrence':target=record['current_occurrence_at']
+            for checked in data['checklist_checks']:check(db,db.execute('SELECT * FROM memos WHERE id=?',(entity_id,)).fetchone(),record,{**checked,'occurrence_at':target})
         manifest(db,user_id,entity_id,data['attachments'])
+    elif kind in ('check_item','snooze'):
+        record=memo_dto(db,existing)
+        if kind=='check_item':
+            from .checklist import check
+            check(db,existing,record,parse(models.CheckItemData,body.data))
+        else:
+            from .events import snooze
+            snooze(db,user_id,existing,record,parse(models.SnoozeData,body.data),now)
+        db.execute('UPDATE memos SET updated_by=?,version=version+1,updated_at=? WHERE id=?',(user_id,now,entity_id))
     elif kind in ('complete','archive'):
         from .lifecycle import state,save,occurrence_day,occurrence_schedule
         from .calendar import local_time
         data=parse(models.CompleteData if kind=='complete' else models.ArchiveData,body.data)
         lifecycle=state(existing);record=memo_dto(db,existing)
+        if data.get('message_id'):
+            from .events import require_message
+            from .checklist import completion_scope
+            event=require_message(db,user_id,data['message_id'],entity_id)
+            expected=event['occurrence'] if completion_scope(record)=='occurrence' else None
+            if (local_time(data['occurrence_at']).isoformat() if data.get('occurrence_at') else None)!=expected:fail('invalid_occurrence',422)
+            if not data['completed']:fail('invalid_message_action',422)
         slot=None
         if data.get('occurrence_at'):
             from .calendar import reminder_instances
@@ -298,6 +325,9 @@ def apply_record(db,user_id,body,src):
             completed=desired if kind=='complete' else bool(existing['completed']) if desired else False
             db.execute('UPDATE memos SET completed=?,completed_at=?,archived=? WHERE id=?',
                        (int(completed),existing['completed_at'] or now if completed else None,int(desired),entity_id))
+        if desired:
+            from .checklist import freeze,legacy_occurrence_key
+            freeze(db,existing,slot['occurrence_at'] if slot else legacy_occurrence_key(record,occurrence) if occurrence else 'whole')
         save(db,entity_id,lifecycle)
         db.execute('UPDATE memos SET updated_by=?,version=version+1,updated_at=? WHERE id=?',(user_id,now,entity_id))
         if desired:

@@ -1,7 +1,7 @@
 import { ref } from 'vue'
 import { decisionBody } from './requestBoard'
 import { requireSource } from './sources'
-import type { AccountContext, AccountSource, AppSettings, Category, CategoryChange, CategoryChangeInput, ChangeRequest, FamilyContext, FamilyInvite, RequestInput, Revision, Expense, ImageMeta, Operation, Receipt, Report, Scope, SettingsInput, Snapshot, Source, User } from './types'
+import type { AccountContext, AccountSource, AppSettings, Category, CategoryChange, CategoryChangeInput, ChangeRequest, FamilyContext, FamilyInvite, RequestInput, Revision, Expense, ImageMeta, Operation, Receipt, Report, PushSubscriptionState, Scope, SettingsInput, Snapshot, Source, User } from './types'
 export class ApiError extends Error{constructor(readonly status:number,readonly code:string,readonly current?:Expense,readonly restore_id?:string){super(code)}}
 export const apiWrites=ref(0)
 const restoreIds=new Map<string,string>()
@@ -37,8 +37,11 @@ export const api={
  saveSettings:(userId:string,scope:Scope,input:SettingsInput,source:Source)=>business<AppSettings>(`/settings?scope=${scope}`,userId,source,input,'PUT'),
  reports:(userId:string,scope:Scope,source:Source)=>business<{reports:Report[]}>(`/reports?scope=${scope}`,userId,source),
  report:(userId:string,id:string,source:Source)=>business<Report>(`/reports/${encodeURIComponent(id)}`,userId,source),
+ generateReport:(userId:string,scope:Scope,month:string,source:Source)=>business<Report>('/reports',userId,source,{scope,month}),
+ deleteReport:(userId:string,id:string,source:Source)=>business<void>(`/reports/${encodeURIComponent(id)}`,userId,source,undefined,'DELETE'),
  retryReport:(userId:string,id:string,source:Source)=>business<Report>(`/reports/${encodeURIComponent(id)}/retry`,userId,source,{}),
  subscribe:(origin:AccountSource,subscription:PushSubscriptionJSON)=>accountRequest<void>('/v2/push-subscriptions',origin,{endpoint:subscription.endpoint,keys:{p256dh:subscription.keys?.p256dh,auth:subscription.keys?.auth}}),
+ checkPushSubscription:(origin:AccountSource,endpoint:string)=>accountRequest<PushSubscriptionState>('/v2/push-subscriptions/check',origin,{endpoint}),
  unsubscribe:(origin:AccountSource,endpoint:string)=>accountRequest<void>('/v2/push-subscriptions',origin,{endpoint},'DELETE'),
  export:async(userId:string,format:'json'|'csv',scope:Scope|'all',source:Source):Promise<Blob>=>{const response=await checked(await fetch(`/api/v2/export?format=${format}&scope=${scope}`,{headers:headersFor(userId,source),credentials:'same-origin',cache:'no-store'}));checkResponse(response,source);return response.blob()},
  requestChange:(userId:string,input:RequestInput,restoreId:string,source:Source)=>business<ChangeRequest>('/change-requests',userId,source,input),

@@ -83,7 +83,7 @@ def test_9_to_10_rolls_back_ddl_marker_version_and_old_values(schema9,monkeypatc
 
 
 @pytest.mark.parametrize('alteration',[
-    'PRAGMA user_version=12',
+    f'PRAGMA user_version={database.SCHEMA_VERSION+1}',
     "DELETE FROM schema_migrations WHERE name='memo-archive-v1'",
     'PRAGMA user_version=9',
     'ALTER TABLE memos ADD COLUMN unknown_future TEXT',

@@ -2,6 +2,7 @@
 import json
 from uuid import UUID
 from .models import DraftItem
+from .proposals import FIELDS
 from .budget import usage_cost
 
 def validate_database(db):
@@ -22,7 +23,15 @@ def validate_database(db):
             turn=db.execute('SELECT record_id FROM ai_turns WHERE id=?',(row['turn_id'],)).fetchone()
             if not turn or turn['record_id']!=row['record_id']:raise ValueError()
             for item in json.loads(row['items_json']):
-                data=dict(item);data.pop('adopted');data.pop('entity_id',None);DraftItem.model_validate(data)
+                data={k:v for k,v in item.items() if k in DraftItem.model_fields};DraftItem.model_validate(data)
+                if type(item['adopted'])!=bool:raise ValueError()
+                if 'operation' in item:
+                    if set(item['changed_fields'])-set(FIELDS[item['kind']]):raise ValueError()
+                    if item['operation']!='delete' and (set(item['after'])!=set(item['changed_fields']) or any(item[key]!=value for key,value in item['after'].items())):raise ValueError()
+                    if item['operation']!='create' and (not item.get('target_id') or type(item.get('base_version'))!=int or not isinstance(item.get('before'),dict)):raise ValueError()
+                    if item['operation']=='delete':
+                        if item['kind']=='plan' or item.get('after') is not None:raise ValueError()
+                    elif not isinstance(item.get('after'),dict):raise ValueError()
         for row in db.execute('SELECT * FROM ai_adoptions'):
             origin=json.loads(row['source_json']);receipt=json.loads(row['receipt_json'])
             if origin['user_id']!=row['user_id'] or receipt['plan_id'] not in records:raise ValueError()

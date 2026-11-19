@@ -123,14 +123,14 @@ class Worker:
                 db.execute("UPDATE reports SET status='unconfigured',error='请由管理员配置主用模型并启用调用' WHERE id=?",(row['id'],))
                 db.execute('UPDATE report_tasks SET next_attempt=? WHERE report_id=?',(stamp+300,row['id']))
                 db.commit(); return
-            expenses=reports.snapshot(db,row['scope'],row['owner_id'],row['month'])
+            expenses=reports.snapshot(db,row['scope'],row['owner_id'],row['month'],now=now)
             current=reports.version(expenses)
             if current!=task['target_version'] or task['restore_id']!=reports.state(db)['restore_id']:
-                reports.queue(db,row['id'],current,when=stamp+60)
-                db.execute("UPDATE reports SET status='stale',content_json=NULL,data_version=? WHERE id=?",(current,row['id']))
+                db.execute('DELETE FROM report_tasks WHERE report_id=?',(row['id'],))
+                db.execute("UPDATE reports SET status='stale',data_version=? WHERE id=?",(current,row['id']))
                 db.commit(); return
             if not expenses:
-                db.execute("UPDATE reports SET status='stale',content_json=NULL WHERE id=?",(row['id'],))
+                db.execute("UPDATE reports SET status='stale' WHERE id=?",(row['id'],))
                 db.execute('DELETE FROM report_tasks WHERE report_id=?',(row['id'],)); db.commit(); return
             try:
                 progress=json.loads(task['progress_json'])
@@ -201,7 +201,7 @@ class Worker:
                     'elapsed_ms':max(0,round((time.monotonic()-started)*1000)),
                     'request_id':safe_identifier(diagnostics.get('request_id')),'response_id':safe_identifier(diagnostics.get('response_id')),'web_search':diagnostics.get('web_search')},separators=(',',':')))
             live=db.execute('SELECT * FROM report_tasks WHERE report_id=? AND claim_token=?',(row['id'],token)).fetchone()
-            if not live or reports.state(db)['automation_paused'] or reports.state(db)['restore_id']!=task['restore_id'] or (row['scope']=='shared' and not db.execute('SELECT 1 FROM families WHERE id=? AND archived=0',(row['owner_id'],)).fetchone()) or reports.version(reports.snapshot(db,row['scope'],row['owner_id'],row['month']))!=current:
+            if not live or reports.state(db)['automation_paused'] or reports.state(db)['restore_id']!=task['restore_id'] or (row['scope']=='shared' and not db.execute('SELECT 1 FROM families WHERE id=? AND archived=0',(row['owner_id'],)).fetchone()) or reports.version(reports.snapshot(db,row['scope'],row['owner_id'],row['month'],now=now))!=current:
                 db.commit(); return
             live=dict(live)
             if error:
@@ -279,7 +279,7 @@ class Worker:
         with connect(self.db_path) as db:
             db.execute('BEGIN IMMEDIATE')
             live=db.execute('SELECT * FROM notification_outbox WHERE id=?',(row['id'],)).fetchone()
-            if live['status']!='pending':
+            if not live or live['status']!='pending':
                 db.commit();return
             if not reports.notification_valid(db,live):
                 db.execute("UPDATE notification_outbox SET status='cancelled' WHERE id=? AND status='pending'",(row['id'],));db.commit();return

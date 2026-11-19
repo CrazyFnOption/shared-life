@@ -76,6 +76,23 @@
 .memos-workspace .memo-time-input select{color-scheme:light;font-variant-numeric:tabular-nums}
 .memos-workspace .memo-time-input option{background:var(--memo-paper);color:var(--memo-ink)}
 .memos-workspace .memo-once-time{display:flex;flex-direction:column;gap:12px;min-width:0}
+.memos-workspace .memo-quick-reminders{display:flex;flex-direction:column;gap:10px;min-width:0}
+.memos-workspace .memo-quick-heading,.memos-workspace .memo-quick-group>span{font-size:13px;color:var(--memo-muted)}
+.memos-workspace .memo-quick-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.memos-workspace .memo-quick-grid button{min-width:0;min-height:44px;padding:9px 4px;border:1px solid var(--memo-line);border-radius:10px;background:var(--memo-soft);color:var(--memo-accent);font-size:13px;text-align:center}
+.memos-workspace .memo-quick-grid button[aria-pressed=true]{border-color:var(--memo-accent);box-shadow:inset 0 0 0 1px var(--memo-accent);font-weight:600}
+.memos-workspace .memo-quick-grid button:focus-visible,.memos-workspace .memo-quick-more>summary:focus-visible{outline:2px solid var(--memo-accent);outline-offset:2px}
+.memos-workspace .memo-quick-more>summary{display:flex;align-items:center;justify-content:space-between;min-height:44px;list-style:none;cursor:pointer;color:var(--memo-accent);font-size:13px}
+.memos-workspace .memo-quick-more>summary::-webkit-details-marker{display:none}
+.memos-workspace .memo-quick-more>summary:after{content:'＋'}
+.memos-workspace .memo-quick-more[open]>summary:after{content:'−'}
+.memos-workspace .memo-quick-more-content,.memos-workspace .memo-quick-group{display:flex;flex-direction:column;gap:8px}
+.memos-workspace .memo-quick-more-content{gap:14px;padding-bottom:4px}
+.memos-workspace .memo-custom-reminder{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:8px;align-items:end}
+.memos-workspace .memo-custom-reminder .memo-secondary{min-height:48px;padding-inline:12px}
+.memos-workspace .memo-quick-preview{display:flex;flex-direction:column;gap:4px;padding:12px;border-radius:10px;background:var(--memo-soft);color:var(--memo-accent);font-size:13px;line-height:1.6;overflow-wrap:anywhere}
+.memos-workspace .memo-quick-preview strong{font-weight:550}
+.memos-workspace .memo-quick-preview small{font-size:12px;color:var(--memo-muted)}
 
 .memos-workspace .memo-day-picker{margin:0;padding:0;border:0;min-width:0}
 .memos-workspace .memo-day-picker legend,.memos-workspace .memo-clock-list>.memo-field-head{font-size:13px;color:var(--memo-muted);margin-bottom:8px}
@@ -96,3 +113,57 @@
 
 .memos-workspace .memo-occurrence-label{font-size:14px;font-weight:550;color:var(--memo-accent);font-variant-numeric:tabular-nums}
 .memos-workspace .memo-slot-time{font-size:12px;color:var(--memo-muted);font-variant-numeric:tabular-nums}
+
+/* Detail uses the same reading column for navigation, content and actions. */
+.memos-workspace .memo-header.detail-nav {
+  display:flex; justify-content:space-between; align-items:center;
+  max-width:720px; margin-inline:auto; padding-block:4px 16px;
+}
+.memos-workspace .detail-nav button { min-height:44px; }
+.memos-workspace .memo-detail { max-width:720px; gap:18px; }
+.memos-workspace .memo-detail .memo-title-block { gap:4px; }
+.memos-workspace .memo-detail .memo-record-title { font-weight:650; line-height:1.25; margin-block:2px; }
+.memos-workspace .memo-detail .memo-reading {
+  background:var(--memo-paper); border:1px solid var(--memo-line);
+  border-radius:16px; padding:clamp(16px,3vw,24px); overflow-wrap:anywhere;
+}
+.memos-workspace .detail-reminder {
+  display:flex; justify-content:space-between; align-items:baseline; gap:12px;
+  padding-block:4px 12px; border-bottom:1px solid var(--memo-line);
+}
+.memos-workspace .detail-reminder span,.memos-workspace .memo-detail summary { color:var(--memo-muted); font-size:14px; }
+.memos-workspace .memo-detail summary { cursor:pointer; padding-block:12px; }
+.memos-workspace .detail-actions { align-items:flex-start; gap:18px; }
+.memos-workspace .detail-options { display:grid; gap:6px; padding-block:4px; }
+
+/* Reading typography and inline checklists share one text column. */
+.memos-workspace .memo-detail .memo-reading > .memo-markdown {
+  font-size:16px; line-height:1.75; display:flow-root;
+}
+.memos-workspace .memo-reading > .memo-markdown > :first-child { margin-top:0; }
+.memos-workspace .memo-reading > .memo-markdown > :last-child { margin-bottom:0; }
+.memos-workspace .memo-reading .memo-markdown :is(h1,h2,h3,h4,h5,h6) {
+  font-weight:650; line-height:1.35; text-wrap:pretty;
+}
+.memos-workspace .memo-reading .memo-markdown :is(ul,ol) {
+  padding-inline-start:1.5em; margin-block-end:0;
+}
+.memos-workspace .memo-reading .md-task-item { margin-inline-start:-1.5em; }
+.memos-workspace .memo-reading .md-task-item + .md-task-item {
+  border-top:1px solid var(--memo-line); margin-top:0;
+}
+.memos-workspace .memo-reading .md-task-label {
+  display:grid; grid-template-columns:22px minmax(0,1fr); gap:12px;
+  align-items:baseline; min-height:48px; padding-block:10px; line-height:1.6;
+}
+.memos-workspace .memo-reading .md-task-label > input {
+  align-self:start; margin:2px 0 0; border-color:var(--memo-muted);
+}
+.memos-workspace .memo-reading .md-task-label > input:checked { border-color:var(--memo-accent); }
+.memos-workspace .memo-reading .md-task-item > :is(ul,ol) { margin-inline-start:34px; }
+.memos-workspace .memo-reading .memo-markdown table {
+  display:block; overflow-x:auto; border-collapse:collapse;
+}
+.memos-workspace .memo-reading .memo-markdown :is(td,th) {
+  padding:6px 12px; text-align:start; border-bottom:1px solid var(--memo-line);
+}

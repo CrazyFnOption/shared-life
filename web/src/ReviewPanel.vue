@@ -14,6 +14,8 @@ const emit=defineEmits<{restoreChanged:[];unauthorized:[];changed:[]}>()
 const scope=computed(()=>props.scope),reports=ref<Report[]>([]),selected=ref<Report>(),settings=ref<AppSettings>()
 const loading=ref(false),busy=ref(false),detailLoading=ref(false),message=ref(''),settingsError=ref('')
 const page=ref(1),pageSize=10
+const generateYear=ref(lastMonth().slice(0,4)),generateMonth=ref(lastMonth().slice(5,7))
+const currentMonth=computed(()=>new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit'}).format(new Date()))
 const reviewTab=ref<'weekly'|'reports'>(props.target?.tab??'reports')
 const unratedExpenses=computed(()=>props.account.local.filter(item=>!item.voided&&item.owner_id===props.account.user.id&&item.rating==null))
 const ratingEditor=ref<{expense:Expense;rating:string;reason:string}>(),ratingError=ref(''),ratingForm=ref<HTMLFormElement>()
@@ -41,7 +43,7 @@ function applySettings(value:AppSettings){
  settings.value=value
 }
 function errorText(error:unknown){
- if(error instanceof ApiError){if(error.code==='restore_changed'){emit('restoreChanged');return '服务端已恢复，正在同步新状态；本机草稿仍保留'}if(error.status===401||error.code==='account_changed'){emit('unauthorized');return '登录状态已变化，请恢复原账号'}if(error.status===404)return '报告已不可访问，请刷新列表'}
+ if(error instanceof ApiError){if(error.code==='report_empty_month')return '所选月份没有已同步的有效支出，未创建报告或调用模型。';if(error.code==='report_future_month')return '请选择本月或更早的月份。';if(error.code==='restore_changed'){emit('restoreChanged');return '服务端已恢复，正在同步新状态；本机草稿仍保留'}if(error.status===401||error.code==='account_changed'){emit('unauthorized');return '登录状态已变化，请恢复原账号'}if(error.status===404)return '报告已不可访问，请刷新列表'}
  return '暂时无法完成，请联网后重试'
 }
 async function loadSettings(){const current=epoch,request=++settingsRequest,book=scope.value,captured=source();settingsError.value='';try{const value=await api.settings(props.account.user.id,book,captured);await verify(captured);if(current===epoch&&request===settingsRequest&&book===scope.value)applySettings(value)}catch(error){if(current===epoch&&request===settingsRequest)settingsError.value=errorText(error)}}
@@ -78,14 +80,29 @@ async function saveSettings(part:'monthly'|'weekly'){
  }}
  catch(error){if(current===epoch)settingsError.value=errorText(error)}finally{finishBusy(token)}
 }
-async function retryReport(item:Report){if(busy.value)return;const current=epoch,token=startBusy(),captured=source();message.value='';try{await api.retryReport(props.account.user.id,item.id,captured);await verify(captured);if(current===epoch){await loadReports();if(current===epoch)message.value='已重新排入生成待办'}}catch(error){if(current===epoch)message.value=errorText(error)}finally{finishBusy(token)}}
+async function generateReport(){
+ if(busy.value||ratingEditor.value)return
+ const month=`${generateYear.value.padStart(4,'0')}-${generateMonth.value}`
+ if(month>currentMonth.value){message.value='请选择本月或更早的月份。';return}
+ const current=epoch,token=startBusy(),captured=source();message.value=''
+ try{const item=await api.generateReport(props.account.user.id,scope.value,month,captured);await verify(captured);if(current===epoch){await loadReports(item.id);if(current===epoch)message.value=item.status==='ready'?'已打开已有月报，未重新调用模型。':'已打开该月报告与生成待办；重复点击不会重复生成。'}}
+ catch(error){if(current===epoch)message.value=errorText(error)}finally{finishBusy(token)}
+}
+async function deleteReport(item:Report){
+ if(busy.value||ratingEditor.value)return
+ if(!confirm(`删除 ${item.month} ${scope.value==='shared'?'共同':'私人'}月报？${scope.value==='shared'?'家庭成员将无法再查看这份报告。':''}待处理生成和报告通知会一并删除，原始支出、评价、附件不受影响。已发生或未知的 AI 费用不会退回。`))return
+ const current=epoch,token=startBusy(),captured=source();message.value=''
+ try{await api.deleteReport(props.account.user.id,item.id,captured);await verify(captured);if(current===epoch){selected.value=undefined;await loadReports();if(current===epoch)message.value='月报已删除，不会自动恢复；需要时可按月重新生成。'}}
+ catch(error){if(current===epoch)message.value=errorText(error)}finally{finishBusy(token)}
+}
+async function retryReport(item:Report){if(busy.value)return;const current=epoch,token=startBusy(),captured=source();message.value='';try{await api.retryReport(props.account.user.id,item.id,captured);await verify(captured);if(current===epoch){await loadReports(item.id);if(current===epoch)message.value='已排入生成待办；完成前可继续查看上次分析'}}catch(error){if(current===epoch)message.value=errorText(error)}finally{finishBusy(token)}}
 async function download(){
  if(busy.value)return;const current=epoch,id=props.account.user.id,format=exportFormat.value,book=exportScope.value,token=startBusy(),captured=book==='private'?sourceFor(props.account,{scope:'private',family_id:null}):source(),viewSource=source();settingsError.value=''
  try{const blob=await api.export(id,format,book,captured);await props.store.verifySource(id,captured);await verify(viewSource);if(current!==epoch)return;const url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download=`同在-${book}-${new Date().toISOString().slice(0,10)}.${format}`;document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);settingsError.value='导出已交给浏览器下载；仅包含当前共同及本人私人范围'}catch(error){if(current===epoch)settingsError.value=errorText(error)}finally{finishBusy(token)}
 }
 function editRating(expense:Expense){const current=props.account.local.find(item=>item.id===expense.id&&!item.voided);if(!current||current.owner_id!==props.account.user.id)return;ratingEditor.value={expense:{...current},rating:current.rating==null?'':String(current.rating),reason:current.rating_reason??''};ratingError.value='';void nextTick(()=>{ratingForm.value?.scrollIntoView({block:'nearest'});ratingForm.value?.querySelector('select')?.focus()})}
-async function saveRating(){if(!ratingEditor.value||busy.value)return;const draft=ratingEditor.value,current=epoch,captured={...source()},token=startBusy();ratingError.value='';if(!draft.rating||![1,2,3,4,5].includes(Number(draft.rating))){ratingError.value='请选择你实际的满意度；未选择时不会写入评分。';finishBusy(token);return}try{await props.store.maintain(props.account.user.id,draft.expense,{kind:'review',data:{rating:Number(draft.rating),rating_reason:draft.reason.trim()}},captured.restore_id,captured);if(current!==epoch||!sameSource(captured,props.account.source))return;ratingEditor.value=undefined;if(selected.value)selected.value={...selected.value,status:'stale',content:null};message.value='评价已保存到本机，待同步后自动更新月报。';emit('changed')}catch(error){if(current===epoch)ratingError.value=error instanceof Error?error.message:'评价未保存，输入已保留。'}finally{finishBusy(token)}}
-function shortStatus(item:Report){return item.status==='stale'?'待更新':item.status==='running'?'更新中':reportStatus(item.status)}
+async function saveRating(){if(!ratingEditor.value||busy.value)return;const draft=ratingEditor.value,current=epoch,captured={...source()},token=startBusy();ratingError.value='';if(!draft.rating||![1,2,3,4,5].includes(Number(draft.rating))){ratingError.value='请选择你实际的满意度；未选择时不会写入评分。';finishBusy(token);return}try{await props.store.maintain(props.account.user.id,draft.expense,{kind:'review',data:{rating:Number(draft.rating),rating_reason:draft.reason.trim()}},captured.restore_id,captured);if(current!==epoch||!sameSource(captured,props.account.source))return;ratingEditor.value=undefined;if(selected.value)selected.value={...selected.value,status:'stale',content_is_current:false};message.value='评价已保存到本机；同步后请主动更新月报。';emit('changed')}catch(error){if(current===epoch)ratingError.value=error instanceof Error?error.message:'评价未保存，输入已保留。'}finally{finishBusy(token)}}
+function shortStatus(item:Report){return item.status==='stale'?'有更新':item.status==='running'?'更新中':reportStatus(item.status)}
 function date(value:string|null){return value?new Date(value).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'}):'尚未生成'}
 function syncDate(value?:string|null){return value?new Date(value).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'}):'未知'}
 function payer(id:string){return props.account.users.find(u=>u.id===id)?.display_name??'付款人'}
@@ -95,7 +112,7 @@ watch([scope,context],()=>{const next=settingsContext.value;invalidate(next===se
 watch(()=>props.target,async target=>{if(!target)return;reviewTab.value=target.tab;await loadReports(target.reportId);if(target.notice&&!message.value)message.value=target.notice})
 function offline(){invalidate(true);message.value='报告仅在线读取，请联网后刷新'}
 let poll:ReturnType<typeof setInterval>|undefined
-onMounted(()=>{poll=setInterval(()=>{if(props.active&&reviewTab.value==='reports'&&!ratingEditor.value&&!busy.value&&!loading.value&&!detailLoading.value&&selected.value&&['pending','running','stale'].includes(selected.value.status))void loadReports()},5000);void loadReports(props.target?.reportId).then(()=>{if(props.target?.notice&&!message.value)message.value=props.target.notice});void loadSettings();window.addEventListener('offline',offline)})
+onMounted(()=>{poll=setInterval(()=>{if(props.active&&reviewTab.value==='reports'&&!ratingEditor.value&&!busy.value&&!loading.value&&!detailLoading.value&&selected.value&&['pending','running'].includes(selected.value.status))void loadReports()},5000);void loadReports(props.target?.reportId).then(()=>{if(props.target?.notice&&!message.value)message.value=props.target.notice});void loadSettings();window.addEventListener('offline',offline)})
 onUnmounted(()=>{clearInterval(poll);invalidate();window.removeEventListener('offline',offline)})
 </script>
 <template>
@@ -105,20 +122,22 @@ onUnmounted(()=>{clearInterval(poll);invalidate();window.removeEventListener('of
   <form v-if="ratingEditor" v-show="pane==='review'" ref="ratingForm" aria-label="补记我的评价" class="monthly-rating stack" @submit.prevent="saveRating"><h3>{{ ratingEditor.expense.purpose }} · 我的评价</h3><label>我的满意度<select v-model="ratingEditor.rating" :disabled="busy"><option value="">选择评分</option><option v-for="(name,index) in ratingLabels" :key="index" :value="String(index+1)">{{ index+1 }} 分 · {{ name }}</option></select></label><label>一句原因（选填）<textarea v-model="ratingEditor.reason" rows="2" maxlength="500" :disabled="busy"></textarea></label><p v-if="ratingError" role="alert" class="field-error">{{ ratingError }}</p><div class="monthly-rating-actions"><button type="button" class="text-button" style="flex-shrink:0;white-space:nowrap" :disabled="busy" @click="ratingEditor=undefined">取消</button><button class="primary" :disabled="busy">{{ busy?'正在保存…':'保存评价' }}</button></div></form>
   <section v-show="pane==='review'&&reviewTab==='reports'" class="review-task monthly-review" aria-label="月度复盘">
    <p v-if="settings&&!settings.provider_configured" class="notice">月度 AI 尚未配置，账目和已同步金额仍可查看。</p>
+   <details class="report-generator settings-disclosure"><summary>按月生成</summary><form class="stack" @submit.prevent="generateReport"><p class="form-note">选择当前范围的月份，默认上月。本月按截至当前已同步的记录复盘；未来月份不可生成。已有报告或生成待办会直接打开，不会重复调用模型。</p><div class="month-picker-fields"><label>年份<input v-model="generateYear" type="number" min="1" max="9999" step="1" required inputmode="numeric" aria-label="生成月报年份"></label><label>月份<select v-model="generateMonth" aria-label="生成月报月份"><option v-for="n in 12" :key="n" :value="String(n).padStart(2,'0')">{{ n }}月</option></select></label></div><button class="primary" :disabled="busy||!!ratingEditor">{{ busy?'正在处理…':'生成或打开月报' }}</button><p class="form-note">新生成沿用现有 AI 共用每月 50 美元额度与费用确认机制；此操作不改变自动月报设置。</p></form></details>
    <div class="review-tabs"><span class="form-note">{{ scope==='shared'?'共同月报':'私人月报' }} · 自动复盘上个月</span><button class="text-button" @click="loadReports()" :disabled="loading||busy||!!ratingEditor">刷新</button></div>
    <p v-if="message" class="notice" role="status">{{ message }}</p><p v-if="loading||detailLoading" class="form-note" role="status">{{ detailLoading?'读取在线报告…':'读取报告列表…' }}</p>
-   <p v-if="!loading&&!reports.length" class="empty">上月报告尚未生成。每月首个周日按约定时间自动复盘，无需手动生成。</p>
+   <p v-if="!loading&&!reports.length" class="empty">当前没有月报。可按月生成；已启用的自动月报仍按约定时间运行。</p>
    <section v-if="selected" class="report-detail monthly-detail" aria-label="月报详情">
-    <div class="monthly-heading"><h3>{{ selected.month }} {{ scope==='shared'?'共同':'私人' }}复盘</h3><span class="monthly-status" role="status">{{ shortStatus(selected) }}</span></div>
-    <div class="monthly-total"><span class="form-note">{{ scope==='shared'?'共同':'私人' }}净支出</span><strong>¥{{ money(selected.summary.total_cents) }}</strong><div class="monthly-payers"><div v-for="amount in selected.summary.by_payer" :key="amount.user_id"><span class="form-note">{{ payer(amount.user_id) }}支付净额</span><b>¥{{ money(amount.amount_cents) }}</b></div></div><p class="form-note">已扣除退款 · 仅含已同步记录</p></div>
+    <div class="monthly-heading"><h3>{{ selected.month }} {{ scope==='shared'?'共同':'私人' }}复盘</h3><span class="monthly-status" role="status">{{ shortStatus(selected) }}</span></div><p v-if="selected.month===currentMonth" class="form-note">本月截至当前 · 仅含已同步记录，后续记录同步后会提示有更新，由你主动更新报告。</p><button type="button" class="text-button report-delete" :disabled="busy||!!ratingEditor" :aria-label="`删除 ${selected.month} 月报`" @click="deleteReport(selected)">删除这份月报</button>
+    <p v-if="selected.content&&!selected.content_is_current" class="notice">以下是上次生成的分析，账目已有变化或正在更新。上次金额与明细未保存独立快照，请更新报告后核对当前账目。</p><button v-if="selected.status==='stale'" class="primary" :disabled="busy||!!ratingEditor" @click="retryReport(selected)">更新报告</button><div v-if="!selected.content||selected.content_is_current" class="monthly-total"><span class="form-note">{{ scope==='shared'?'共同':'私人' }}净支出</span><strong>¥{{ money(selected.summary.total_cents) }}</strong><div class="monthly-payers"><div v-for="amount in selected.summary.by_payer" :key="amount.user_id"><span class="form-note">{{ payer(amount.user_id) }}支付净额</span><b>¥{{ money(amount.amount_cents) }}</b></div></div><p class="form-note">已扣除退款 · 仅含已同步记录</p></div>
     <h3 class="monthly-section-title">这个月，钱花得怎样</h3><p v-if="reportError" class="field-error">{{ reportError }}</p><p v-if="costNotice" class="form-note" role="status">{{ costNotice }}</p>
-    <p v-if="selected.status==='ready'&&selected.content" class="report-prose monthly-prose">{{ selected.content.summary }}</p><p v-else class="form-note">{{ selected.status==='unconfigured'?'AI 尚未配置，消费明细与已提交评价仍可查看。':selected.status==='failed'?'AI 分析暂不可用，金额与评价保留。':'分析正在等待更新，以下金额与明细来自最新已同步记录。' }}</p>
-    <p v-if="selected.summary.unrated_count" class="monthly-unrated">{{ selected.summary.unrated_count }} 笔消费未评价，暂按一般情况分析。评分仍为空，不代表付款人提交了 3 分。</p>
-    <h3 class="monthly-section-title">逐笔看看</h3><p class="form-note">展开查看付款人的评价与价值解释</p>
+    <p v-if="selected.content" class="report-prose monthly-prose">{{ selected.content.summary }}</p><p v-else class="form-note">{{ selected.status==='unconfigured'?'AI 尚未配置，消费明细与已提交评价仍可查看。':selected.status==='failed'?'AI 分析暂不可用，金额与评价保留。':'尚无可用分析，以下金额与明细来自当前已同步记录；有更新时需主动更新报告。' }}</p>
+    <p v-if="(!selected.content||selected.content_is_current)&&selected.summary.unrated_count" class="monthly-unrated">{{ selected.summary.unrated_count }} 笔消费未评价，暂按一般情况分析。评分仍为空，不代表付款人提交了 3 分。</p>
+    <template v-if="!selected.content||selected.content_is_current"><h3 class="monthly-section-title">逐笔看看</h3><p class="form-note">展开查看付款人的评价与价值解释</p>
     <details v-for="expense in selected.expenses??[]" :key="expense.id" class="monthly-expense"><summary><span><strong>{{ expense.purpose }}</strong><small>{{ payer(expense.owner_id) }}支付 · {{ expense.rating==null?'未评价':expense.rating+' 分' }}</small></span><b>¥{{ money(netAmount(expense)) }} <Icon name="chevron"/></b></summary><div class="monthly-expense-body"><p class="form-note">原款 ¥{{ money(expense.amount_cents) }} · 已退款 ¥{{ money(expense.amount_cents-netAmount(expense)) }}</p><p>{{ expense.rating==null?'付款人尚未提交评分与原因':payer(expense.owner_id)+'的评价 · '+expense.rating+' 分' }}{{ expense.rating_reason?'：'+expense.rating_reason:'' }}</p><p v-if="selected.status==='ready'&&selected.content" class="report-prose">{{ analysis(selected,expense.id) }}</p><p v-else-if="expense.rating==null" class="form-note">未评价项按一般情况分析，实际感受留待付款人补充。</p><button v-if="expense.owner_id===account.user.id&&!ratingEditor" class="subtle" @click="editRating(expense)">{{ expense.rating==null?'补充我的评价':'调整我的评价' }}</button>
 
     </div></details>
-    <p class="form-note monthly-report-meta">数据截止：{{ syncDate(account.synced_at) }}<br>最近更新：{{ date(selected.generated_at) }}<br>实际模型：{{ selected.model||'尚未使用' }}</p>
+    </template><details v-else class="monthly-history"><summary>查看上次逐笔分析</summary><p class="form-note">这些分析沿用上次生成时的记录；当前用途、金额与评分请在更新报告后核对。</p><p v-for="item in selected.content.items" :key="item.expense_id" class="report-prose">{{ item.analysis }}</p></details>
+    <p class="form-note monthly-report-meta">{{ selected.content&&!selected.content_is_current?'当前账目同步时间（非上次分析快照）':'数据截止' }}：{{ syncDate(account.synced_at) }}<br>最近生成：{{ date(selected.generated_at) }}<br>实际模型：{{ selected.model||'尚未使用' }}</p>
     <button v-if="['failed','unconfigured'].includes(selected.status)" class="text-button" @click="retryReport(selected)" :disabled="busy||!!ratingEditor">恢复后重新排入待办</button>
    </section>
    <details v-if="reports.length>1" class="monthly-history"><summary>查看其他月份</summary><article v-for="item in reports.slice((page-1)*pageSize,page*pageSize)" :key="item.id" class="report-item"><div><h3>{{ item.month }} · {{ shortStatus(item) }}</h3><p>净支出 ¥{{ money(item.summary.total_cents) }}</p></div><button class="subtle" @click="openReport(item)" :disabled="detailLoading||!!ratingEditor">查看</button></article><div v-if="pages>1" class="pagination"><button class="subtle" @click="page--" :disabled="page===1">上一页</button><span>{{ page }} / {{ pages }}</span><button class="subtle" @click="page++" :disabled="page===pages">下一页</button></div></details>

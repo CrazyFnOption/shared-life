@@ -1,4 +1,5 @@
 """Small account-bound settings, reports and exports API helpers."""
+import hashlib
 import csv
 import io
 import json
@@ -21,6 +22,8 @@ class Weekly(Monthly):
 class Settings(RequestModel):
     monthly: Monthly | None = None
     weekly: Weekly | None = None
+PUSH_PROVIDERS={'fcm.googleapis.com':'FCM','push.services.mozilla.com':'Mozilla','notify.windows.com':'Windows','web.push.apple.com':'Apple'}
+
 class Keys(RequestModel):
     p256dh: str = Field(min_length=1,max_length=256,pattern=r'^[A-Za-z0-9_=-]+$')
     auth: str = Field(min_length=1,max_length=128,pattern=r'^[A-Za-z0-9_=-]+$')
@@ -32,13 +35,24 @@ class Endpoint(RequestModel):
         parsed=urlparse(value)
         # Only known browser push endpoints may receive server requests, preventing SSRF.
         host=parsed.hostname or ''
-        if parsed.scheme!='https' or parsed.username or parsed.password or parsed.port not in (None,443) or not any(host==d or host.endswith('.'+d) for d in ('fcm.googleapis.com','push.services.mozilla.com','notify.windows.com','web.push.apple.com')):
+        if parsed.scheme!='https' or parsed.username or parsed.password or parsed.port not in (None,443) or not any(host==d or host.endswith('.'+d) for d in PUSH_PROVIDERS):
             raise ValueError('Unsupported browser push endpoint')
         return value
 class Subscription(Endpoint):
     keys: Keys
+class GenerateReport(RequestModel):
+    scope: Literal['shared','private']
+    month: str = Field(pattern=r'^[0-9]{4}-(?:0[1-9]|1[0-2])$')
+
 class Empty(RequestModel):
     pass
+
+def check_subscription(db,user_id,endpoint):
+    row=db.execute('SELECT active FROM push_subscriptions WHERE owner_id=? AND endpoint=?',(user_id,endpoint)).fetchone()
+    host=urlparse(endpoint).hostname or ''
+    provider=next((label for domain,label in PUSH_PROVIDERS.items() if host==domain or host.endswith('.'+domain)),'Other')
+    return {'registered':row is not None,'active':bool(row['active']) if row else False,
+            'provider':provider,'endpoint_fingerprint':hashlib.sha256(endpoint.encode()).hexdigest()[:12]}
 
 def get_settings(db,user_id,worker,scope="shared"):
     if getattr(db,'protocol',0)==2:

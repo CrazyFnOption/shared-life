@@ -128,7 +128,8 @@ def test_memo_outbox_simulated_sender_privacy_deep_link_and_restore(home,tmp_pat
     subscribe(path,item['author_id']);push=FakePush();worker=Worker(path,push=push)
     now=datetime.now(calendar.ZONE);worker._notifications(now);worker._notifications(now)
     assert len(push.sent)==1
-    payload=push.sent[0][1];assert payload['title']=='同在' and data['title'] not in json.dumps(payload) and data['body_markdown'] not in json.dumps(payload)
+    payload=push.sent[0][1]
+    assert payload['title']==data['title'] and payload['body']==today.strftime('%m月%d日 00:00')+' · '+data['body_markdown']
     args=parse_qs(urlparse(payload['url']).query);outbox_id=args['notification'][0]
     result=a.get('/api/v2/memos/notifications/'+outbox_id,headers=headers(a));assert result.status_code==200,result.text
     assert result.json()['message']['record_id']==item['id'] and result.json()['source']['user_id']==item['author_id']
@@ -137,6 +138,37 @@ def test_memo_outbox_simulated_sender_privacy_deep_link_and_restore(home,tmp_pat
     restored_sender=FakePush();Worker(restored,push=restored_sender)._notifications(now)
     assert not restored_sender.sent
     with connect(restored) as db:validate_database(db)
+
+
+@pytest.mark.parametrize('body',['','# **提醒详情**\n[文字](https://fictional.invalid/private_(target).pdf) ![附件图片](attachment://private/file.png)\n- 安排 '+('长文'*60)])
+def test_memo_push_uses_actual_recurring_clock_bounded_text_and_existing_guard(home,monkeypatch,body):
+    from server.automation.notifications import payload
+    path,app,(a,b,c)=home;origin='2090-11-15';day='2090-11-16'
+    rules=[{'id':str(uuid4()),'mode':'absolute','at':calendar.anchor(origin,t).isoformat(),'offset_minutes':0,'recipient_ids':[],'all_members':False} for t in ('09:00','21:00')]
+    data={'category_id':None,'title':'晚间提醒标题','body_markdown':body,
+          'attachments':[{'id':str(uuid4()),'kind':'file','name':'附件内容不能出站.pdf','mime_type':'application/pdf','size_bytes':123,'sha256':'0'*64}],
+          'reminders':rules,'recurrence':{'start_date':origin,'frequency':'daily','interval':1,'calendar':'solar','until':None,'lunar_month':None,'lunar_day':None,'lunar_leap':False}}
+    with monkeypatch.context() as creation:
+        clock(creation,calendar.anchor(origin,'08:00'));item=saved(op(a,'memo',str(uuid4()),'create',data))
+    subscribe(path,item['author_id']);now=calendar.anchor(day,'21:15')
+    with connect(path) as db:
+        events.generate(db,now)
+        row=dict(db.execute("SELECT * FROM notification_outbox WHERE dedup_key LIKE 'memo:%' ORDER BY next_attempt DESC LIMIT 1").fetchone())
+        # A forged recipient or source must never expose the memo through this helper.
+        assert payload(db,{**row,'user_id':b.get('/api/auth/me').json()['user']['id']}) is None
+        assert payload(db,{**row,'source_scope':'shared','family_id':str(uuid4())}) is None
+    push=FakePush();Worker(path,push=push)._notifications(now);assert len(push.sent)==2
+    bodies={x[1]['body'] for x in push.sent}
+    for clock_text in ('09:00','21:00'):
+        prefix='11月16日 '+clock_text
+        text=next(text for text in bodies if text.startswith(prefix))
+        assert text==prefix if not body else text.startswith(prefix+' · 提醒详情 文字 安排 ')
+        assert len(text.removeprefix(prefix+' · '))<=80 if body else True
+    assert all(x[1]['title']=='晚间提醒标题' and x[1]['kind']=='memo_reminder' for x in push.sent)
+    assert not any(word in json.dumps(push.sent,ensure_ascii=False) for word in ('private_','fictional.invalid','attachment://','附件图片','附件内容不能出站','21:15','11月15日','**'))
+    with connect(path) as db:
+        db.execute("UPDATE memo_reminder_events SET status='cancelled' WHERE memo_id=?",(item['id'],))
+        assert payload(db,row) is None
 
 
 def test_memo_outbox_bounded_retry_and_change_before_send(home,monkeypatch):

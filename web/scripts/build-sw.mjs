@@ -46,10 +46,13 @@ function notificationUrl(value) {
 self.addEventListener('push', event => {
   let payload = {};
   try { payload = event.data ? event.data.json() : {}; } catch {}
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) payload = {};
   const url = notificationUrl(payload.url);
   const kind = ['monthly_report','weekly_review','memo_reminder'].includes(payload.kind) ? payload.kind : 'general';
-  const body = { monthly_report:'月度复盘已生成，请打开查看', weekly_review:'你有待补评价，请打开查看', memo_reminder:'你有备忘提醒，请打开查看', general:'你有新的提醒，请打开同在查看' }[kind];
-  event.waitUntil(self.registration.showNotification('同在', { body, icon: '/icon.svg', data: { url }, tag: 'shared-expense-' + kind }));
+  const memo = kind === 'memo_reminder' && typeof payload.title === 'string' && payload.title.trim().length > 0 && Array.from(payload.title).length <= 200 && typeof payload.body === 'string' && payload.body.trim().length > 0 && Array.from(payload.body).length <= 160;
+  const title = memo ? payload.title.trim() : '同在';
+  const body = memo ? payload.body.trim() : { monthly_report:'月度复盘已生成，请打开查看', weekly_review:'你有待补评价，请打开查看', memo_reminder:'你有备忘提醒，请打开查看', general:'你有新的提醒，请打开同在查看' }[kind];
+  event.waitUntil(self.registration.showNotification(title, { body, icon: '/icon.svg', data: { url }, tag: 'shared-expense-' + kind, renotify: true }));
 });
 self.addEventListener('notificationclick', event => {
   event.notification.close();

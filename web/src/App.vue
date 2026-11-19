@@ -15,6 +15,7 @@ import type { NotificationIntent } from './notificationLinks'
 import { resumeReviewedBlob } from './resumeReviewedBlob'
 import ModuleSyncIssues from './ModuleSyncIssues.vue'
 import type { ModuleIssue, ModuleIssueAction } from './moduleIssues'
+import { messageOccurrenceAt } from './memos/domain'
 import MessageInbox from './memos/MessageInbox.vue'
 import MemosWorkspace from './memos/MemosWorkspace.vue'
 import HomeMemoQuickActions from './memos/HomeMemoQuickActions.vue'
@@ -92,11 +93,11 @@ const memoCalendarViews=computed(()=>reminderCalendarViews(memoCurrent.value,mem
 const memoCategories=computed(()=>{const p=memoCurrent.value,order=p?.local_category_order?.category_ids??[];return p?.local_categories.map((category,index)=>({id:category.id,name:category.name,version:category.version,position:order.includes(category.id)?order.indexOf(category.id):order.length+index}))??[]})
 const memoMembers=computed(()=>account.value?.source?.scope==='shared'?account.value.family?.members??[]:account.value?[account.value.user]:[])
 const focusedPlanTasks=computed<MemoView[]>(()=>{const snapshot=planSnapshot.value;if(!snapshot)return[];return(memoCurrent.value?.local_focus?.targets??[]).flatMap((target,index)=>{if(target.kind!=='plan_task')return[];const task=taskReference(snapshot,target.id);if(!task||task.completed)return[];return[{id:task.id,version:task.version,kind:'memo' as const,origin:'plan_task' as const,title:task.title,created_at:task.created_at,body:task.body_markdown,creator_id:task.author_id,creator_name:snapshot.users.find(u=>u.id===task.author_id)?.display_name??'原记录人',attachments:[],category_id:'',completed:task.completed,focused:true,focus_position:index}]})})
-const memosWorkspaceRef=ref<{openTarget:(id:string,fromHome?:boolean)=>boolean;openNew:(fromHome?:boolean)=>boolean;resetNavigation:()=>void;updateBlocked:boolean}>()
+const memosWorkspaceRef=ref<{openTarget:(id:string,fromHome?:boolean,occurrenceAt?:string)=>boolean;openNew:(fromHome?:boolean)=>boolean;resetNavigation:()=>void;updateBlocked:boolean}>()
 const plansWorkspaceRef=ref<{openTarget:(id:string,fromHome?:boolean)=>boolean;openNew:(fromHome?:boolean)=>boolean;resetNavigation:()=>void;updateBlocked:boolean}>()
 async function homeNewMemo(){navigate('/memos');await nextTick();if(memoDraft.value){message.value='请先继续或取消未保存的备忘草稿。';return}memosWorkspaceRef.value?.openNew(true)}
 async function homeOpenMemo(item:MemoRecordView){if(item.kind==='memo'&&item.origin==='plan_task'){await openPlanTask(item.id);return}navigate('/memos');await nextTick();if(!memosWorkspaceRef.value?.openTarget(item.id,true))message.value='请先保存或取消当前备忘编辑。'}
-async function homeCompleteMemo(item:MemoRecordView){const source=account.value?.source;if(!source)return;if(item.kind==='memo'&&item.origin==='plan_task'){const result=await completePlanTask(item.id);if(result?.status==='error')message.value=result.error??'完成状态未保存，请重试。';return}await memoCompleted({request_id:crypto.randomUUID(),source:{...source},record_id:item.id,base_version:item.version,completed:true,...(item.recurrence&&item.current_occurrence_at?{occurrence_at:item.current_occurrence_at}:{})});if(memoResult.value?.status==='error')message.value=memoResult.value.error??'完成状态未保存，请重试。'}
+async function homeCompleteMemo(item:MemoRecordView){const source=account.value?.source;if(!source)return;if(item.kind==='memo'&&item.origin==='plan_task'){const result=await completePlanTask(item.id);if(result?.status==='error')message.value=result.error??'完成状态未保存，请重试。';return}await memoCompleted({request_id:crypto.randomUUID(),source:{...source},record_id:item.id,base_version:item.version,completed:true,...((item.recurrence||(item.reminders?.length??0)>1)&&item.current_occurrence_at?{occurrence_at:item.current_occurrence_at}:{})});if(memoResult.value?.status==='error')message.value=memoResult.value.error??'完成状态未保存，请重试。'}
 async function homeQuickExpense(){navigate('/accounting');await nextTick();openForm(tab.value)}
 async function memoOperation(command:MemoOperationCommand){const id=userId.value,epoch=generation;if(!id||memoBusy.value)return;memoBusy.value=true;try{await store.memoSave(id,command.source,command.operation);await refresh();signal();if(id===userId.value&&epoch===generation)memoResult.value={request_id:command.request_id,source:command.source,status:'saved',record_id:command.operation.entity_id};void sync()}catch(error){if(id===userId.value&&epoch===generation)memoResult.value={request_id:command.request_id,source:command.source,status:'error',error:error instanceof Error?error.message:'未保存，输入保留。'}}finally{memoBusy.value=false}}
 function focusOperation(source:Source,target:FocusTarget,focused:boolean,requestId:string=crypto.randomUUID()):MemoOperation{const focus=memoPartition.value?.local_focus;if(!focus||!sameSource(memoPartition.value?.source,source))throw new Error('请先联网核对当前关注列表。');const targets=focus.targets.filter(t=>t.kind!==target.kind||t.id!==target.id);if(focused)targets.push(target);return{op_id:requestId,entity_type:'focus',entity_id:focus.id,kind:'update',base_version:focus.version,data:{targets}}}
@@ -114,7 +115,7 @@ async function memoSaved(command:MemoSaveCommand){
   if([...command.draft.title.trim()].length>200||new TextEncoder().encode(command.draft.body).length>200*1024)throw new Error('标题最多200字，正文最多200KB。')
   const recordId=command.draft.id??crypto.randomUUID(),files=await prepareMemoFiles(command.draft.attachments,command.source,recordId)
   const focus=memoPartition.value?.local_focus,wasFocused=focus?.targets.some(t=>t.kind==='memo'&&t.id===recordId)??false,following:MemoOperation[]=focus&&wasFocused!==command.draft.focused?[focusOperation(command.source,{kind:'memo',id:recordId},command.draft.focused)]:[]
-  await store.lock(`${store.name}:identity`,()=>store.memoSave(id,command.source,{op_id:command.request_id,entity_type:'memo',entity_id:recordId,kind:command.draft.id?'update':'create',base_version:command.draft.base_version,data:{kind:command.draft.kind,category_id:command.draft.category_id||null,title:command.draft.title.trim(),body_markdown:command.draft.body,attachments:files.manifest,schedule:command.draft.kind==='schedule'?{start_date:command.draft.start_date,end_date:command.draft.has_end?command.draft.end_date:null,start_time:command.draft.all_day?null:command.draft.start_time,end_time:command.draft.all_day||!command.draft.has_end?null:command.draft.end_time}:null,reminders:command.draft.reminders??[],recurrence:command.draft.recurrence?{...command.draft.recurrence,until:command.draft.recurrence.until||null}:null}},files.blobs,following))
+  await store.lock(`${store.name}:identity`,()=>store.memoSave(id,command.source,{op_id:command.request_id,entity_type:'memo',entity_id:recordId,kind:command.draft.id?'update':'create',base_version:command.draft.base_version,data:{kind:command.draft.kind,category_id:command.draft.category_id||null,title:command.draft.title.trim(),checklist_items:command.draft.checklist_items??[],...(command.draft.checklist_checks?.length?{checklist_checks:command.draft.checklist_checks,...(command.draft.checklist_occurrence_at?{checklist_occurrence_at:command.draft.checklist_occurrence_at}:{})}:{}),body_markdown:command.draft.body,attachments:files.manifest,schedule:command.draft.kind==='schedule'?{start_date:command.draft.start_date,end_date:command.draft.has_end?command.draft.end_date:null,start_time:command.draft.all_day?null:command.draft.start_time,end_time:command.draft.all_day||!command.draft.has_end?null:command.draft.end_time}:null,reminders:command.draft.reminders??[],recurrence:command.draft.recurrence?{...command.draft.recurrence,until:command.draft.recurrence.until||null}:null}},files.blobs,following))
   await refresh();signal()
   if(id===userId.value&&epoch===generation&&sameSource(account.value?.source,command.source))memoResult.value={request_id:command.request_id,source:command.source,status:'saved',record_id:recordId}
   void sync()
@@ -154,6 +155,18 @@ const logoutError=ref('')
 const registering=ref(false)
 const displayName=ref('')
 const message = ref('')
+const actionFeedback = ref('')
+let actionFeedbackTimer: number | undefined
+function clearActionFeedback(){
+  window.clearTimeout(actionFeedbackTimer)
+  actionFeedbackTimer=undefined
+  actionFeedback.value=''
+}
+function showActionFeedback(text:string){
+  clearActionFeedback()
+  actionFeedback.value=text
+  actionFeedbackTimer=window.setTimeout(clearActionFeedback,4000)
+}
 const formError = ref('')
 const loginError = ref('')
 const localWarning = ref('')
@@ -163,7 +176,7 @@ const password = ref('')
 const tab = ref<Scope>('private')
 const currentFamilyId=ref<string|null>(null)
 const transferFamilyId=ref('')
-watch(userId,()=>{syncProblem.value='';syncOpen.value=false;syncSummary.value={active:0,frozen:0,financial:0,memo:0,plan:0,lastSync:null,issues:[]}})
+watch(userId,()=>{clearActionFeedback();syncProblem.value='';syncOpen.value=false;syncSummary.value={active:0,frozen:0,financial:0,memo:0,plan:0,lastSync:null,issues:[]}})
 const currentSource=()=>account.value?.source??account.value?.legacy_source
 function businessSource():Source{const source=account.value?.source;if(!source)throw new Error('请先联网升级服务端并核对来源，本机待办保留');return source}
 async function readCurrent(id:string,source=currentSource()){if(!source)throw new Error('尚未核对当前范围');return store.readProjection(id,source)}
@@ -171,10 +184,13 @@ async function readCurrent(id:string,source=currentSource()){if(!source)throw ne
 const route=ref<AppRoute>(parseAppRoute(window.location.hash))
 const inboxOpen=ref(false)
 const inboxMessages=ref<MemoMessage[]>([]),inboxIgnored=ref(false),inboxLoading=ref(false),inboxBusy=ref(false),inboxError=ref('')
+const unresolvedSnooze=new Map<string,import('./memos/domain').MemoOperation>()
 let inboxRequest=0
-async function loadInbox(){const id=userId.value,source=account.value?.source,request=++inboxRequest;if(!id||!source)return;inboxLoading.value=true;inboxError.value='';try{await store.verifySource(id,source);const result=await memoApi.messages(id,source,inboxIgnored.value);await store.verifySource(id,source);if(request===inboxRequest&&id===userId.value&&sameSource(account.value?.source,source))inboxMessages.value=result.messages}catch(error){if(request===inboxRequest)inboxError.value=error instanceof Error?error.message:'消息暂时无法核对，请联网重试。'}finally{if(request===inboxRequest)inboxLoading.value=false}}
-watch(()=>account.value?.source?sourceKey(account.value.source):'',()=>{inboxRequest++;inboxOpen.value=false;inboxMessages.value=[];inboxError.value='';inboxIgnored.value=false;moduleSyncIssues.value=[];moduleIssuesSource.value=undefined;calendarRequest++;calendarLoading.value=false;calendarError.value=''},{flush:'sync'})
+async function loadInbox(){const id=userId.value,source=account.value?.source,request=++inboxRequest;if(!id||!source)return;inboxLoading.value=true;inboxError.value='';try{await store.verifySource(id,source);const result=await memoApi.messages(id,source,inboxIgnored.value);await store.verifySource(id,source);if(request===inboxRequest&&id===userId.value&&sameSource(account.value?.source,source)){const partition=await store.memoRead(id,source),pending=new Set(partition.queue.filter(item=>item.operation.kind==='complete').map(item=>(item.operation.data as {message_id?:string}).message_id));inboxMessages.value=result.messages.filter(message=>!pending.has(message.id))}}catch(error){if(request===inboxRequest)inboxError.value=error instanceof Error?error.message:'消息暂时无法核对，请联网重试。'}finally{if(request===inboxRequest)inboxLoading.value=false}}
+watch(()=>account.value?.source?sourceKey(account.value.source):'',()=>{clearActionFeedback();inboxRequest++;unresolvedSnooze.clear();inboxOpen.value=false;inboxMessages.value=[];inboxError.value='';inboxIgnored.value=false;moduleSyncIssues.value=[];moduleIssuesSource.value=undefined;calendarRequest++;calendarLoading.value=false;calendarError.value=''},{flush:'sync'})
 watch(inboxOpen,open=>{if(open){inboxMessages.value=memoPartition.value?.messages??[];void loadInbox()}})
+async function completeMessage(item:MemoMessage){const id=userId.value,source=account.value?.source;if(!id||!source||inboxBusy.value||!sameSource(item.source,source))return;inboxBusy.value=true;inboxError.value='';try{const partition=await store.memoRead(id,source),record=partition.local.find(record=>record.id===item.record_id);if(!record)throw new Error('原记录不可用。');await store.memoSave(id,source,{op_id:crypto.randomUUID(),entity_type:'memo',entity_id:item.record_id,kind:'complete',base_version:record.version,data:{completed:true,message_id:item.id,...(item.completion_scope==='occurrence'?{occurrence_at:item.occurrence_at}:{})}});inboxMessages.value=inboxMessages.value.filter(message=>message.id!==item.id);await refresh();signal();showActionFeedback('已保存到本机，待同步。');void sync()}catch(error){inboxError.value=error instanceof Error?error.message:'完成未保存。'}finally{inboxBusy.value=false}}
+async function snoozeMessage(item:MemoMessage,until:string){const id=userId.value,source=account.value?.source;if(!id||!source||inboxBusy.value||!sameSource(item.source,source))return;inboxBusy.value=true;inboxError.value='';try{if(!navigator.onLine)throw new Error('推后需要联网，当前提醒时间未改变。');await sync();await store.verifySource(id,source);const partition=await store.memoRead(id,source);if(partition.queue.some(pending=>pending.operation.entity_id===item.record_id))throw new Error('这条备忘还有待同步或冲突操作，请先在同步状态中处理。');const record=partition.local.find(record=>record.id===item.record_id);if(!record||!item.occurrence_at)throw new Error('原提醒不可用。');let operation=unresolvedSnooze.get(item.id);if(!operation){operation={op_id:crypto.randomUUID(),entity_type:'memo',entity_id:item.record_id,kind:'snooze',base_version:record.version,data:{message_id:item.id,occurrence_at:item.occurrence_at,until}};unresolvedSnooze.set(item.id,operation)}let result;try{result=await memoApi.receipt(id,source,operation.op_id)}catch(error){if(!(error instanceof ApiError)||error.code!=='memo_operation_not_found')throw error;try{result=await memoApi.send(id,operation,source)}catch(sendError){if(sendError instanceof ApiError&&sendError.status<500){unresolvedSnooze.delete(item.id);throw sendError}try{result=await memoApi.receipt(id,source,operation.op_id)}catch{throw sendError}}}await store.verifySource(id,source);unresolvedSnooze.delete(item.id);await sync();await loadInbox();showActionFeedback('已推后至 '+new Date((operation.data as {until:string}).until).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}))}catch(error){inboxError.value=error instanceof ApiError?({memo_conflict:'这条备忘已更新，请刷新消息后重试。',message_changed:'本次提醒已由其他成员推后，请刷新消息。',message_unavailable:'本次提醒已完成或不再可用。',message_not_due:'本次提醒尚未到新的提醒时间。',snooze_time_passed:'所选时间已过，请重新选择。'}[error.code]??'推后未成功，请刷新消息后重试。'):error instanceof Error?error.message:'推后结果尚未确认，请保留选择后重试。'}finally{inboxBusy.value=false}}
 async function changeInboxIgnored(ignored:boolean){inboxIgnored.value=ignored;await loadInbox()}
 async function ignoreMessage(item:MemoMessage,restore=false){const id=userId.value,source=account.value?.source;if(!id||!source||inboxBusy.value||!sameSource(item.source,source))return;inboxBusy.value=true;inboxError.value='';try{await store.verifySource(id,source);await memoApi.ignore(id,source,item.id,restore);await store.verifySource(id,source);await loadInbox();await sync()}catch(error){inboxError.value=error instanceof Error?error.message:'消息操作未确认，请联网重试。'}finally{inboxBusy.value=false}}
 function notificationHasInputs(){return financialInputsBusy.value||hasUnsavedFinancialInputs.value||!!form.value||!!refundForm.value||!!requestForm.value||Object.keys(memoDrafts.value).length>0||Object.keys(planDrafts.value).length>0||!!memosWorkspaceRef.value?.updateBlocked||!!plansWorkspaceRef.value?.updateBlocked||!!familyPanelRef.value?.hasUnsavedChanges||route.value==='/settings/account'||appInputActive.value}
@@ -185,7 +201,7 @@ async function openMessage(item:MemoMessage,resolvedReport=false,notice=''){cons
  if(live.target_type==='family_invite'){openFamily('received');return}
  if(live.target_type==='expense_change_request'||live.target_type==='expense_category_change'){if(!openFinancialRequests())throw new Error('请先保存或取消当前输入，再查看这条消息。');await nextTick();if(live.target_type==='expense_change_request'){const index=boardRequests.value.findIndex(r=>r.id===live.target_id);if(index>=0)requestPage.value=Math.floor(index/20)+1;await nextTick();document.getElementById(`request-${live.target_id}`)?.scrollIntoView({block:'center'})}return}
  if(live.target_type==='plan_deletion_request'){const p=await store.planRead(id,source);if(![...p.local.records,...p.local.tasks].some(r=>r.id===live.record_id&&!r.deleted))throw new Error('原记录已不可访问。');navigate('/plans');await nextTick();if(!plansWorkspaceRef.value?.openTarget(live.record_id))throw new Error('请先保存或取消当前编辑，再查看这条消息。');return}
- const p=await store.memoRead(id,source);if(!p.local.some(r=>r.id===live.record_id&&!r.deleted))throw new Error('原记录已不可访问。');navigate('/memos');await nextTick();if(!memosWorkspaceRef.value?.openTarget(live.record_id))throw new Error('请先保存或取消当前编辑，再查看这条消息。')
+ const p=await store.memoRead(id,source);if(!p.local.some(r=>r.id===live.record_id&&!r.deleted))throw new Error('原记录已不可访问。');navigate('/memos');await nextTick();if(!memosWorkspaceRef.value?.openTarget(live.record_id,false,messageOccurrenceAt(live)))throw new Error('请先保存或取消当前编辑，再查看这条消息。')
 }catch(error){inboxError.value=error instanceof Error?error.message:'消息暂时无法打开。';message.value=inboxError.value}finally{inboxBusy.value=false}}
 
 const financialNavigationPaused=ref(false)
@@ -210,6 +226,7 @@ function resumeParkedFinancialInput(){
   resumeFinancialNavigation();message.value='已恢复原范围的未保存输入，请先保存或取消。';return true
 }
 watch(route,(next,previous)=>{
+  clearActionFeedback()
   if(previous==='/memos'||previous==='/plans')resetModuleNavigation(previous)
   // Reset synchronously, before explicit deep links schedule openTarget.
   resetModuleNavigation(next)
@@ -256,6 +273,7 @@ function navigate(target:AppRoute){
   if(route.value!==target){window.location.hash=target;route.value=target}else resetModuleNavigation(target)
 }
 function homeAndRefresh(){
+  clearActionFeedback()
   navigate('/home')
   void sync()
   void checkFamilyAndInvites()
@@ -1075,7 +1093,7 @@ navigator.serviceWorker?.addEventListener('message',notificationMessage)
 window.addEventListener('offline-cache-error',cacheError)
 document.addEventListener('visibilitychange',foreground)
 channel?.addEventListener('message',remoteChange)
-onUnmounted(() => { window.removeEventListener('keydown',shellModalKeys);window.removeEventListener('pointerdown',dismissFinancialMenu);window.removeEventListener('hashchange',hashChanged);window.clearInterval(inviteTimer);window.removeEventListener('online',online);window.removeEventListener('offline',offline);navigator.serviceWorker?.removeEventListener('message',notificationMessage); window.removeEventListener('offline-cache-error',cacheError); document.removeEventListener('visibilitychange',foreground); channel?.close();imageUrlRevision++;imageUrlCache.clear();form.value?.added.forEach(i=>URL.revokeObjectURL(i.url)) })
+onUnmounted(() => { clearActionFeedback();window.removeEventListener('keydown',shellModalKeys);window.removeEventListener('pointerdown',dismissFinancialMenu);window.removeEventListener('hashchange',hashChanged);window.clearInterval(inviteTimer);window.removeEventListener('online',online);window.removeEventListener('offline',offline);navigator.serviceWorker?.removeEventListener('message',notificationMessage); window.removeEventListener('offline-cache-error',cacheError); document.removeEventListener('visibilitychange',foreground); channel?.close();imageUrlRevision++;imageUrlCache.clear();form.value?.added.forEach(i=>URL.revokeObjectURL(i.url)) })
 </script>
 
 <template>
@@ -1088,6 +1106,7 @@ onUnmounted(() => { window.removeEventListener('keydown',shellModalKeys);window.
         <button ref="profileTrigger" class="life-avatar" @click="navigate('/settings')" :aria-label="`${account.user.display_name}的账号与设置`"><span>{{ account.user.display_name.slice(0,1) }}</span></button>
       </template>
     </header>
+    <div v-if="actionFeedback" class="action-feedback" role="status" aria-live="polite"><span>{{ actionFeedback }}</span><button type="button" class="icon-button" aria-label="关闭操作提示" @click="clearActionFeedback"><Icon name="close"/></button></div>
     <p v-if="appUpdateReady" class="notice" role="status">{{ appUpdateError || (appUpdateBlocked?'新版本已就绪，当前输入或操作完成后会自动更新。':'新版本已就绪，正在更新…') }}</p>
     <p v-if="!supported" class="notice error" role="alert">当前浏览器暂不支持离线记账，请换用新版 Safari、Chrome 或 Edge。</p>
     <p v-if="message && !['已同步到服务端','正在同步'].includes(message)" class="notice" role="status" aria-live="polite">{{ message }}<button v-if="notificationWaiting" type="button" class="text-button" @click="resumeNotification">{{ notificationChooseScope?'选择范围':'打开待处理通知' }}</button></p>
@@ -1195,7 +1214,7 @@ onUnmounted(() => { window.removeEventListener('keydown',shellModalKeys);window.
     <div v-if="requestForm && !locked && detail" class="modal-backdrop sub-modal"><section class="form-card" role="dialog" aria-modal="true" aria-label="申请更正"><div class="form-title"><h2>申请更正</h2><button class="icon-button" @click="requestForm=undefined" :disabled="requestBusy" aria-label="取消申请"><Icon name="close"/></button></div><form class="stack" @submit.prevent="submitRequest"><fieldset class="request-fields" :disabled="requestBusy || !!requestForm.submitted"><label>建议动作<select v-model="requestForm.kind" @change="requestForm.refund_id=''" :disabled="requestBusy"><option value="update">修改支出</option><option value="refund_create">新增退款</option><option value="refund_update">更正退款</option><option value="refund_void">作废退款</option><option value="void">作废支出</option></select></label><template v-if="requestForm.kind==='update'"><label>建议金额（元）<input v-model="requestForm.amount" inputmode="decimal" required></label><label>建议用途<textarea v-model="requestForm.purpose" maxlength="500" required></textarea></label><label>建议消费时间<input v-model="requestForm.time" type="datetime-local" required></label><label>建议地点<input v-model="requestForm.location" maxlength="200"></label><label>建议分类<select v-model="requestForm.category"><option value="">未分类</option><option v-for="name in categories('shared')" :key="name">{{ name }}</option></select></label></template><label v-if="requestForm.kind==='refund_update'||requestForm.kind==='refund_void'">选择退款<select v-model="requestForm.refund_id" required @change="chooseRequestRefund"><option value="">请选择</option><option v-for="refund in requestForm.original.refunds?.filter(r=>!r.voided)" :key="refund.id" :value="refund.id">¥{{ money(refund.amount_cents) }} · {{ refund.reason||displayTime(refund.occurred_at) }}</option></select></label><template v-if="requestForm.kind==='refund_create'||requestForm.kind==='refund_update'"><label>建议退款金额（元）<input v-model="requestForm.refund_amount" inputmode="decimal" required></label><label>建议退款时间<input v-model="requestForm.refund_time" type="datetime-local" required></label><label>建议退款原因<textarea v-model="requestForm.refund_reason" maxlength="500"></textarea></label></template><p v-if="requestForm.kind==='void'" class="form-note">接受后整笔支出退出正常列表和统计，保留记录者本人历史。</p><label>申请原因（选填）<textarea v-model="requestForm.reason" maxlength="500"></textarea></label></fieldset><p v-if="requestMessage" class="field-error" role="alert">{{ requestMessage }}</p><p v-if="requestForm.submitted" class="form-note">已提交过此内容，重试会沿用原编号和内容。若需修改，请先取消并同步确认上次结果。</p><p class="form-note">仅在线提交，记录者接受后才修改原账。网络失败会保留原编号供重试。</p><button class="primary" :disabled="requestBusy">{{ requestBusy?'正在提交…':'提交更正申请' }}</button></form></section></div>
     <div v-if="previewId && imageUrls[previewId] && !locked" class="image-backdrop" @click.self="previewId=undefined"><section role="dialog" aria-modal="true" aria-label="图片凭证"><button class="preview-close" @click="previewId=undefined" aria-label="关闭图片"><Icon name="close"/></button><img :src="imageUrls[previewId]" alt="图片凭证大图"></section></div>
     </div>
-    <MessageInbox :scope-label="scopeName" v-if="inboxOpen && account && !locked" :messages="inboxMessages" :ignored="inboxIgnored" :loading="inboxLoading" :busy="inboxBusy" :error="inboxError" @close="inboxOpen=false;inboxTrigger?.focus()" @toggle="changeInboxIgnored" @open="openMessage" @ignore="ignoreMessage" @restore="item=>ignoreMessage(item,true)"/>
+    <MessageInbox :scope-label="scopeName" v-if="inboxOpen && account && !locked" :messages="inboxMessages" :ignored="inboxIgnored" :loading="inboxLoading" :busy="inboxBusy" :error="inboxError" @close="inboxOpen=false;inboxTrigger?.focus()" @toggle="changeInboxIgnored" @open="openMessage" @ignore="ignoreMessage" @restore="item=>ignoreMessage(item,true)" @complete="completeMessage" @snooze="snoozeMessage"/>
   </main>
   <div v-if="loggingOut" class="modal-backdrop" role="status" aria-live="polite"><p class="form-card">正在退出账号，尚未清除本机输入…</p></div>
 </template>

@@ -91,14 +91,62 @@ def generate(db,now,*,scope=None,namespace=None):
                 if (when,uid) in seen:continue
                 seen.add((when,uid))
                 if db.execute('SELECT 1 FROM memo_reminder_events WHERE memo_id=? AND occurrence=? AND user_id=? AND source_restore_id=?',(row['id'],when.isoformat(),uid,restore)).fetchone():continue
+                if db.execute('SELECT 1 FROM memo_reminder_events WHERE memo_id=? AND occurrence=? AND source_restore_id=? AND delivery_revision>0',(row['id'],when.isoformat(),restore)).fetchone():continue
                 identity=str(uuid5(NAMESPACE_URL,f'shared-life:reminder:{restore}:{row["id"]}:{rule["id"]}:{when.isoformat()}:{uid}'))
                 db.execute("INSERT OR IGNORE INTO memo_reminder_events(id,memo_id,rule_id,occurrence,user_id,source_restore_id,scope,namespace,relation_epoch,record_version,rule_signature,created_at,status) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'ready')",(identity,row['id'],rule['id'],when.isoformat(),uid,restore,row['scope'],row['namespace'],members[uid] or None,row['version'],signature(rule,recurrence,record['schedule']),now.isoformat()))
                 from .notifications import enqueue
                 enqueue(db,identity,now.timestamp())
 
 
+def message_identity(event):
+    return event['id']+((':'+str(event['delivery_revision'])) if event['delivery_revision'] else '')
+
+
+def parse_message_identity(identity):
+    from uuid import UUID
+    try:
+        parts=identity.split(':');event_id=str(UUID(parts[0]));revision=int(parts[1]) if len(parts)==2 else 0
+        if len(parts)>2 or revision<0 or (len(parts)==2 and (revision==0 or str(revision)!=parts[1])):raise ValueError()
+        return event_id,revision
+    except (ValueError,TypeError,AttributeError):return None,None
+
+
+def require_message(db,user_id,identity,memo_id):
+    from .service import source,namespace,fail
+    from . import service
+    from .notifications import valid
+    src=source(db,user_id);event_id,revision=parse_message_identity(identity)
+    event=db.execute('SELECT * FROM memo_reminder_events WHERE id=?',(event_id,)).fetchone()
+    if not event or event['memo_id']!=memo_id or event['user_id']!=user_id or event['source_restore_id']!=src['restore_id'] or event['scope']!=src['scope'] or event['namespace']!=namespace(src):fail('message_not_found',404)
+    if revision!=event['delivery_revision']:fail('message_changed')
+    outbox=db.execute('SELECT * FROM notification_outbox WHERE dedup_key=?',('memo:'+identity,)).fetchone()
+    if not outbox or not valid(db,outbox,include_ignored=True,for_delivery=False):fail('message_unavailable')
+    if local_time(event['delivery_at'] or event['occurrence'])>service.datetime.now(UTC):fail('message_not_due')
+    return event
+
+
+def snooze(db,user_id,row,record,data,now):
+    from .service import fail
+    from .notifications import valid,enqueue
+    event=require_message(db,user_id,data['message_id'],row['id'])
+    if local_time(data['occurrence_at']).isoformat()!=event['occurrence']:fail('invalid_occurrence',422)
+    until=local_time(data['until'])
+    if until<=local_time(now):fail('snooze_time_passed',422)
+    rows=db.execute('SELECT * FROM memo_reminder_events WHERE memo_id=? AND occurrence=? AND source_restore_id=? AND scope=? AND namespace=?',(row['id'],event['occurrence'],event['source_restore_id'],event['scope'],event['namespace'])).fetchall()
+    revision=max(item['delivery_revision'] for item in rows)+1
+    eligible=[]
+    for item in rows:
+        outbox=db.execute('SELECT * FROM notification_outbox WHERE dedup_key=?',('memo:'+message_identity(item),)).fetchone()
+        if outbox and valid(db,outbox,include_ignored=True,for_delivery=False):eligible.append(item)
+        db.execute("UPDATE notification_outbox SET status='cancelled' WHERE dedup_key LIKE ? AND status IN ('pending','failed','uncertain')",('memo:'+item['id']+'%',))
+    for item in eligible:
+        db.execute('UPDATE memo_reminder_events SET delivery_at=?,delivery_revision=? WHERE id=?',(until.isoformat(),revision,item['id']))
+        enqueue(db,item['id'],until.timestamp())
+
+
 def messages(db,user_id,*,include_ignored=False):
     from .service import source,namespace
+    from . import service
     src=source(db,user_id);ns=namespace(src);result=[]
     ignored={r[0] for r in db.execute('SELECT event_id FROM memo_message_ignores WHERE user_id=? AND source_restore_id=? AND scope=? AND namespace=?',(user_id,src['restore_id'],src['scope'],ns))}
     for row in db.execute("SELECT e.*,m.title,m.version,m.kind,m.completed,m.archived,m.deleted,m.reminders_json,m.recurrence_json,m.schedule_json,m.archive_state_json FROM memo_reminder_events e JOIN memos m ON m.id=e.memo_id WHERE e.user_id=? AND e.scope=? AND e.namespace=? AND e.source_restore_id=? AND e.status='ready'",(user_id,src['scope'],ns,src['restore_id'])):
@@ -109,7 +157,10 @@ def messages(db,user_id,*,include_ignored=False):
         if row['rule_signature']!=signature(rule,recurrence,schedule):continue
         from .lifecycle import event_is_archived
         if event_is_archived(row,row,rule):continue
-        result.append({'id':row['id'],'kind':'reminder','target_type':'memo','target_id':row['memo_id'],'record_id':row['memo_id'],'title':row['title'],'created_at':row['created_at'],'source':src})
+        if local_time(row['delivery_at'] or row['occurrence'])>service.datetime.now(UTC):continue
+        from .checklist import completion_scope
+        record={'completed':bool(row['completed']),'reminders':json.loads(row['reminders_json']),'recurrence':recurrence}
+        result.append({'id':message_identity(row),'occurrence_at':row['occurrence'],'reminder_id':row['rule_id'],'record_version':row['version'],'is_recurring':bool(recurrence),'completion_scope':completion_scope(record),'delivery_at':row['delivery_at'] or row['occurrence'],'delivery_revision':row['delivery_revision'],'kind':'reminder','target_type':'memo','target_id':row['memo_id'],'record_id':row['memo_id'],'title':row['title'],'created_at':row['created_at'],'source':src})
     for row in db.execute("SELECT r.*,m.title FROM memo_deletion_requests r JOIN memos m ON m.id=r.memo_id WHERE r.author_id=? AND r.status='pending' AND m.scope=? AND m.namespace=? AND m.deleted=0 AND m.version=r.target_version AND r.source_restore_id=?",(user_id,src['scope'],ns,src['restore_id'])):
         requester=families.relation(db,row['requester_id'],src['family_id']) if src['scope']=='shared' else None
         if not requester or requester['relation_epoch']!=row['requester_epoch'] or row['author_epoch']!=src['relation_epoch']:continue

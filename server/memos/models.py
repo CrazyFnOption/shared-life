@@ -36,7 +36,31 @@ class Attachment(Model):
         return value
 
 
+class ChecklistItem(Model):
+    id: UUID
+    text: str = Field(min_length=1,max_length=500)
+
+    @field_validator('text',mode='before')
+    @classmethod
+    def trim_text(cls,value):
+        return value.strip() if isinstance(value,str) else value
+
+
+class ChecklistCheck(Model):
+    item_id: UUID
+    checked: bool = Field(strict=True)
+
+
 class MemoData(Model):
+    checklist_items: list[ChecklistItem] | None = Field(default=None,max_length=100)
+    checklist_checks: list[ChecklistCheck] | None = Field(default=None,max_length=100)
+    checklist_occurrence_at: datetime | None = None
+
+    @field_validator('checklist_occurrence_at')
+    @classmethod
+    def checked_occurrence(cls,value):
+        if value is not None and value.tzinfo is None:raise ValueError('Timezone required')
+        return value
     category_id: UUID | None = None
     kind: Literal['memo','schedule'] = 'memo'
     schedule: 'Schedule | None' = None
@@ -69,6 +93,7 @@ class CategoryData(Model):
 
 
 class CompleteData(Model):
+    message_id: str | None = None
     completed: bool = Field(strict=True)
     occurrence_date: date | None = None
     occurrence_at: datetime | None = None
@@ -218,3 +243,47 @@ class ReminderOccurrenceState(Model):
 
 
 ArchiveState.model_rebuild()
+
+
+class CheckItemData(Model):
+    item_id: UUID
+    checked: bool = Field(strict=True)
+    occurrence_at: datetime | None = None
+
+    @field_validator('occurrence_at')
+    @classmethod
+    def aware(cls,value):
+        if value is not None and value.tzinfo is None:raise ValueError('Timezone required')
+        return value
+
+
+class SnoozeData(Model):
+    message_id: str
+    occurrence_at: datetime
+    until: datetime
+
+    @model_validator(mode='after')
+    def aware(self):
+        if self.occurrence_at.tzinfo is None or self.until.tzinfo is None:raise ValueError('Timezone required')
+        return self
+
+
+class ChecklistEntry(Model):
+    checked_ids: list[UUID] = Field(default_factory=list,max_length=100)
+    items_snapshot: list[ChecklistItem] | None = Field(default=None,max_length=100)
+
+
+class Checklist(Model):
+    items: list[ChecklistItem] = Field(max_length=100)
+    states: dict[str,ChecklistEntry]
+
+    @model_validator(mode='after')
+    def valid(self):
+        if len({item.id for item in self.items})!=len(self.items):raise ValueError('Duplicate item')
+        for key,entry in self.states.items():
+            if key!='whole':
+                instant=datetime.fromisoformat(key)
+                if instant.tzinfo is None:raise ValueError('Timezone required')
+            items=entry.items_snapshot if entry.items_snapshot is not None else self.items
+            if len({item.id for item in items})!=len(items) or len(set(entry.checked_ids))!=len(entry.checked_ids) or not set(entry.checked_ids)<={item.id for item in items}:raise ValueError('Invalid checked IDs')
+        return self

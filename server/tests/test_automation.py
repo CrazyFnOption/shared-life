@@ -81,7 +81,11 @@ def test_change_during_generation_discards_old_result_and_revokes(setup):
     assert row['status']=='stale' and row['content'] is None
     clock[0]=datetime(2026,12,10,tzinfo=UTC)
     for _ in range(3): w.tick()
-    rid=row['id'];assert c.get('/api/reports/'+rid).json()['status']=='ready'
+    rid=row['id'];assert c.get('/api/reports/'+rid).json()['status']=='stale'
+    assert len(m.calls)==1  # A changed target waits for the user's explicit update.
+    assert c.post('/api/reports/'+rid+'/retry',json={}).status_code==200
+    for _ in range(2):w._model_step(clock[0])
+    assert c.get('/api/reports/'+rid).json()['status']=='ready'
     current=c.get('/api/expenses/'+expense['id']).json()
     body={'operation_id':str(uuid4()),'kind':'scope','expense_id':expense['id'],'base_version':current['version'],'data':{'scope':'private'}}
     response=c.post('/api/operations',json=body)

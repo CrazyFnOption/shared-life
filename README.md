@@ -54,7 +54,7 @@ docker compose up --build -d
 
 ## 从 V1 升级
 
-V2 使用 schema11。旧 schema10 数据库需要显式迁移，普通启动不会静默升级。先停止唯一写入服务，保留数据库、附件与原配置的受保护备份，在隔离副本演练迁移及恢复，再对正式库执行：
+本版使用 schema13。旧 schema10、11、12 数据库需要显式迁移，普通启动不会静默升级。先停止唯一写入服务，保留数据库、附件与原配置的受保护备份，在隔离副本演练迁移及恢复，再对正式库执行：
 
 ```sh
 uv run python -m scripts.migrate_memos --database /path/to/ledger.sqlite3 --evidence /path/to/new-private-migration-evidence.json

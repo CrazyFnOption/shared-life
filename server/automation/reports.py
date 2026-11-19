@@ -18,12 +18,13 @@ def month_of(value):
 def previous_month(now):
     return (now.astimezone(ZONE).replace(day=1) - timedelta(days=1)).strftime('%Y-%m')
 
-def snapshot(db, scope, owner, month):
+def snapshot(db, scope, owner, month, *, now=None):
+    cutoff=now or datetime.now(UTC)
     rows = db.execute("SELECT id FROM expenses WHERE scope=? AND voided=0 AND ((scope='shared' AND family_id=?) OR (scope='private' AND owner_id=?)) ORDER BY id", (scope, owner, owner))
     result = []
     for row in rows:
         expense = ledger.read_expense(db, row['id'])
-        if month_of(expense['occurred_at']) == month:
+        if month_of(expense['occurred_at']) == month and datetime.fromisoformat(expense['occurred_at'].replace('Z','+00:00'))<=cutoff:
             result.append(ledger.shared_expense(expense))
     return result
 
@@ -47,18 +48,58 @@ def invalidate(db, before, after):
     affected = {(e['scope'], e['family_id'] if e['scope']=='shared' else e['owner_id'], month_of(e['occurred_at'])) for e in (before,after) if e}
     for scope, owner, month in affected:
         row = db.execute('SELECT * FROM reports WHERE scope=? AND owner_id=? AND month=?',(scope,owner,month)).fetchone()
-        if not row:
+        if not row or row['status']=='deleted':
             continue
         data_version = version(snapshot(db,scope,owner,month))
-        db.execute("UPDATE reports SET status='stale',content_json=NULL,data_version=?,error=NULL WHERE id=?",(data_version,row['id']))
+        before_domain=(before['scope'],before['family_id'] if before['scope']=='shared' else before['owner_id']) if before else None
+        after_domain=(after['scope'],after['family_id'] if after['scope']=='shared' else after['owner_id']) if after else None
+        revoked=before_domain==(scope,owner) and (
+            before_domain!=after_domain or scope=='shared' and not before['voided'] and bool(after and after['voided']))
+        db.execute("UPDATE reports SET status='stale',data_version=?,error=NULL,content_json=CASE WHEN ? THEN NULL ELSE content_json END WHERE id=?",(data_version,revoked,row['id']))
         db.execute("UPDATE notification_outbox SET status='cancelled' WHERE report_id=? AND status!='sent'",(row['id'],))
-        queue(db,row['id'],data_version,when=db.execute("SELECT app_now()").fetchone()[0]+60)
+        db.execute('DELETE FROM report_tasks WHERE report_id=?',(row['id'],))
 
 def authorize(db, report_id, user_id):
     row = db.execute('SELECT * FROM reports WHERE id=?',(report_id,)).fetchone()
-    if not row or (row['owner_id'] != (families.current_id(db,user_id) if row['scope']=='shared' else user_id)) or (getattr(db,'protocol',0)==2 and (not db.source or db.source['scope']!=row['scope'])):
+    if not row or row['status']=='deleted' or (row['owner_id'] != (families.current_id(db,user_id) if row['scope']=='shared' else user_id)) or (getattr(db,'protocol',0)==2 and (not db.source or db.source['scope']!=row['scope'])):
         raise HTTPException(404,detail='Report not found')
     return dict(row)
+
+def generate(db, user_id, scope, month, now):
+    if month[:4]=='0000' or month>now.astimezone(ZONE).strftime('%Y-%m'):
+        raise HTTPException(422,detail={'code':'report_future_month'})
+    if getattr(db,'protocol',0)==2:
+        families.require_scope(db,user_id,scope)
+    owner=families.current_id(db,user_id) if scope=='shared' else user_id
+    if scope=='shared':
+        families.require_shared(db,user_id,owner)
+    row=db.execute('SELECT * FROM reports WHERE scope=? AND owner_id=? AND month=?',(scope,owner,month)).fetchone()
+    # Reopening a saved/queued/failed report never starts another paid attempt.
+    if row and row['status']!='deleted':
+        return read(db,dict(row),detail=True)
+    expenses=snapshot(db,scope,owner,month,now=now)
+    if not expenses:
+        raise HTTPException(409,detail={'code':'report_empty_month'})
+    if row:
+        # The deleted month marker blocks the scheduler until this explicit request.
+        # A fresh ID also fences old network responses and notification links.
+        db.execute('DELETE FROM reports WHERE id=?',(row['id'],))
+    identity=str(uuid4());data_version=version(expenses)
+    db.execute("INSERT INTO reports(id,scope,owner_id,month,status,data_version) VALUES(?,?,?,?,'pending',?)",(identity,scope,owner,month,data_version))
+    queue(db,identity,data_version,when=now.timestamp())
+    return read(db,dict(db.execute('SELECT * FROM reports WHERE id=?',(identity,)).fetchone()),detail=True)
+
+
+def delete(db, report_id, user_id):
+    row=authorize(db,report_id,user_id)
+    if row['scope']=='shared':
+        families.require_shared(db,user_id,row['owner_id'])
+    # Preserve ai_costs/model_usage, including reservations for a call already in flight.
+    db.execute('DELETE FROM report_tasks WHERE report_id=?',(report_id,))
+    db.execute('DELETE FROM push_deliveries WHERE outbox_id IN (SELECT id FROM notification_outbox WHERE report_id=?)',(report_id,))
+    db.execute('DELETE FROM notification_outbox WHERE report_id=?',(report_id,))
+    db.execute("UPDATE reports SET status='deleted',content_json=NULL,error=NULL,generated_at=NULL,provider=NULL,model=NULL WHERE id=?",(report_id,))
+
 
 def read(db, row, *, detail=False):
     expenses = snapshot(db,row['scope'],row['owner_id'],row['month'])
@@ -69,7 +110,8 @@ def read(db, row, *, detail=False):
     result['owner_id'] = None if row['scope']=='shared' else row['owner_id']
     result['summary'] = summary(expenses)
     content=json.loads(row['content_json']) if row['content_json'] else {}
-    result['content'] = content if detail and fresh and row['status']=='ready' and row['content_json'] else None
+    result['content_is_current'] = fresh and row['status']=='ready'
+    result['content'] = content if detail and row['content_json'] else None
     result['cost_status']=content.get('cost_status') if isinstance(content,dict) else None
     task=db.execute('SELECT progress_json,claim_token FROM report_tasks WHERE report_id=?',(row['id'],)).fetchone()
     if task:

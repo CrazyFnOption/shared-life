@@ -2,8 +2,11 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { occurrenceLabel } from './reminderSlots'
 import { sameSource, sourceKey } from '../sources'
+import { checklistView, completionScope } from './domain'
 import type { MemoDeletionRequest } from './domain'
 import type { Source, User } from '../types'
+import MemoMarkdown from './MemoMarkdown.vue'
+import { taskBody } from './markdownChecklist'
 import MemoAttachments from './MemoAttachments.vue'
 import MemoCalendar from './MemoCalendar.vue'
 import MemoComposer from './MemoComposer.vue'
@@ -57,10 +60,18 @@ const categories = computed(() => [...props.categories].sort((a, b) => a.positio
 const category = computed(() => categories.value.find(item => item.id === categoryId.value))
 const record = computed(() => {
  const matching=props.records.filter(item=>item.id===recordId.value)
- if(recordOccurrenceAt.value){const exact=matching.find(item=>item.occurrence_at===recordOccurrenceAt.value);if(exact)return exact;const base=matching.find(item=>!item.occurrence_key);if(base)return{...base,occurrence_at:recordOccurrenceAt.value,current_occurrence_at:recordOccurrenceAt.value}}
+ if(recordOccurrenceAt.value){const exact=matching.find(item=>item.occurrence_at===recordOccurrenceAt.value);if(exact)return exact;const base=matching.find(item=>!item.occurrence_key);if(base)return{...base,occurrence_at:recordOccurrenceAt.value,current_occurrence_at:recordOccurrenceAt.value,can_edit:base.can_edit&&!base.checklist?.states[recordOccurrenceAt.value]?.items_snapshot}}
  if(recordOccurrence.value){const exact=matching.find(item=>item.kind==='schedule'&&item.occurrence_date===recordOccurrence.value);if(exact)return exact;const base=matching.find(item=>item.kind==='schedule'&&!item.occurrence_key);if(base?.kind==='schedule')return occurrenceView(base,recordOccurrence.value)}
  return matching.find(item=>item.kind!=='schedule'||!item.occurrence_key)
 })
+const detailReminder = computed(() => {
+  const item = record.value
+  const original = item?.occurrence_at ?? item?.current_occurrence_at ?? item?.reminders?.find(r => r.mode === 'absolute')?.at
+  if (!original) return null
+  return item?.snoozed_occurrences?.find(row => Date.parse(row.occurrence_at) === Date.parse(original))?.delivery_at ?? original
+})
+const recordBody=computed(()=>{const item=record.value;if(!item)return{body:'',tasks:[]};const selected=checklistView(item);return taskBody(item.body,item.checklist?.items??[],selected.items,selected.checked,!!item.archived)})
+function checkBody(itemId:string,checked:boolean){const item=record.value;if(!item)return;const key=checklistView(item).key;sendOperation('memo',item.id,item.version,'check_item',{item_id:itemId,checked,...(key!=='whole'?{occurrence_at:key}:{})})}
 const schedules = computed(() => props.calendarRecords ?? [])
 const daySchedulesKnown=computed(()=>schedules.value.filter(item=>item.recurrence&&!item.archived).every(item=>item.occurrence_months?.includes(selectedDay.value.slice(0,7))))
 const daySchedules = computed(() => schedulesForDay(schedules.value,selectedDay.value))
@@ -85,14 +96,15 @@ function back() {
   if (screen.value === 'overview'||screen.value==='detail'&&detailFromHome.value) { detailFromHome.value=false;emit('back'); return }
   go(screen.value === 'detail' ? previous.value : 'overview')
 }
-function open(item: MemoRecordView) { detailFromHome.value=false; if(item.kind==='memo'&&item.origin==='plan_task'){emit('open-plan-task',item.id);return}previous.value = screen.value; recordId.value = item.id; recordOccurrenceAt.value=item.recurrence?item.occurrence_at??'':'';recordOccurrence.value=!recordOccurrenceAt.value&&item.kind==='schedule'&&!item.calendar_projection?item.occurrence_date??'':'';go('detail') }
+function open(item: MemoRecordView) { detailFromHome.value=false; if(item.kind==='memo'&&item.origin==='plan_task'){emit('open-plan-task',item.id);return}previous.value = screen.value; recordId.value = item.id; recordOccurrenceAt.value=item.occurrence_at??(completionScope(item)==='occurrence'?item.current_occurrence_at??'':'');recordOccurrence.value=!recordOccurrenceAt.value&&item.kind==='schedule'&&!item.calendar_projection?item.occurrence_date??'':'';go('detail') }
 function startEditor(item?: MemoRecordView) {
   if (!props.writable || pending.value) return
   recordOccurrence.value='';recordOccurrenceAt.value=''
   lockedKind.value = item?.kind ?? 'memo'
   editorSource.value = { ...props.source }
   const schedule = item?.kind === 'schedule' ? {...item,...item.series_schedule} : undefined
-  editor.value = { source:{...props.source}, id: item?.id, base_version: item?.version ?? 0, kind: item?.kind ?? 'memo', title: item?.title ?? '', body: item?.body ?? '', category_id: item?.category_id ?? categoryId.value, focused: item?.focused ?? false, start_date: schedule?.start_date ?? selectedDay.value, end_date: schedule?.end_date ?? selectedDay.value, start_time: schedule?.start_time ?? '09:00', end_time: schedule?.end_time ?? '09:30', all_day: !schedule?.start_time, has_end: !!schedule?.end_date, attachments: item?.attachments.map(file => ({ ...file })) ?? [],reminders:item?.reminders?.map(r=>({...r,recipient_ids:[...r.recipient_ids]}))??[],recurrence:item?.recurrence?{...item.recurrence}:null }
+  const selected=item?checklistView(item):undefined,projected=item?taskBody(item.body,item.checklist?.items??[],selected!.items,selected!.checked):{body:'',tasks:[]}
+  editor.value = { source:{...props.source}, id: item?.id, base_version: item?.version ?? 0, kind: item?.kind ?? 'memo', title: item?.title ?? '', checklist_items:projected.tasks.map(({id,text})=>({id,text})),checklist_checked_ids:selected?[...selected.checked]:[],checklist_occurrence_at:selected&&selected.key!=='whole'?selected.key:undefined, body: projected.body, category_id: item?.category_id ?? categoryId.value, focused: item?.focused ?? false, start_date: schedule?.start_date ?? selectedDay.value, end_date: schedule?.end_date ?? selectedDay.value, start_time: schedule?.start_time ?? '09:00', end_time: schedule?.end_time ?? '09:30', all_day: !schedule?.start_time, has_end: !!schedule?.end_date, attachments: item?.attachments.map(file => ({ ...file })) ?? [],reminders:item?.reminders?.map(r=>({...r,recipient_ids:[...r.recipient_ids]}))??[],recurrence:item?.recurrence?{...item.recurrence}:null }
   emit('draft-change', { source: { ...editorSource.value }, draft: copyDraft(editor.value) })
   go('editor')
 }
@@ -108,9 +120,9 @@ function save(value: MemoDraft) {
 }
 function complete(item: MemoRecordView) {
   if (!props.writable || pending.value) return
-  const at=item.occurrence_at??(item.recurrence?item.current_occurrence_at:undefined)
-  if(item.recurrence&&item.reminders?.length&&!item.completed&&!at){operationError.value='请联网核对下一次提醒后再完成。';return}
-  if(at&&item.recurrence&&(!item.completed||item.occurrence_at)){recordOccurrenceAt.value=at;const command={...origin(),record_id:item.id,base_version:item.version,completed:!item.completed,occurrence_at:at};pending.value={id:command.request_id,action:'record'};emit('complete',command);return}
+  const at=item.occurrence_at??(completionScope(item)==='occurrence'?item.current_occurrence_at:undefined)
+  if(completionScope(item)==='occurrence'&&!at){operationError.value='请联网核对下一次提醒后再完成。';return}
+  if(at&&(completionScope(item)==='occurrence'||item.occurrence_at)){recordOccurrenceAt.value=at;const command={...origin(),record_id:item.id,base_version:item.version,completed:!item.completed,occurrence_at:at};pending.value={id:command.request_id,action:'record'};emit('complete',command);return}
   if(item.kind==='schedule'&&item.occurrence_key){if(item.occurrence_date)recordOccurrence.value=item.occurrence_date;sendOperation('memo',item.id,item.version,'complete',{completed:!item.completed,...(item.occurrence_date?{occurrence_date:item.occurrence_date}:{})});return}
   if(item.kind==='memo'&&item.origin==='plan_task'){emit('complete-plan-task',item.id);return}
   const command = { ...origin(), record_id: item.id, base_version: item.version, completed: !item.completed }
@@ -129,7 +141,7 @@ function archiveRecord(){const item=record.value;if(item)sendOperation('memo',it
 function removeRecord(){const current=record.value;if(!current)return;if(current.can_delete){if(confirm('删除这条记录？正文与附件将不再显示。'))sendOperation('memo',current.id,current.version,'delete',{})}else{deletingRecord.value=true;deletionReason.value=''}}
 function requestDeletion(){const current=record.value;if(!current)return;sendOperation('deletion_request',crypto.randomUUID(),0,'create',{memo_id:current.id,target_version:current.version,reason:deletionReason.value});deletingRecord.value=false}
 function openNew(fromHome=false){if(pending.value||editor.value)return false;previous.value='overview';returnHomeAfterSave.value=fromHome;startEditor();const draft=editor.value as MemoDraft|undefined;if(fromHome&&draft){draft.focused=true;emit('draft-change',{source:{...props.source},draft:copyDraft(draft)})}return true}
-function openTarget(id:string,fromHome=false){detailFromHome.value=fromHome;if(editor.value)return false;const found=props.records.find(r=>r.id===id);if(!found)return false;previous.value='overview';recordId.value=id;recordOccurrence.value='';recordOccurrenceAt.value='';go('detail');return true}
+function openTarget(id:string,fromHome=false,occurrenceAt?:string){detailFromHome.value=fromHome;if(editor.value)return false;const found=props.records.find(r=>r.id===id);if(!found)return false;previous.value='overview';recordId.value=id;recordOccurrence.value='';recordOccurrenceAt.value=occurrenceAt??(completionScope(found)==='occurrence'?found.current_occurrence_at??'':'');go('detail');return true}
 function resetNavigation(){
  navigationEpoch++;detailFromHome.value=false
  screen.value='overview';previous.value='overview';recordId.value='';recordOccurrence.value='';recordOccurrenceAt.value='';archivePageNumber.value=1;categoryId.value='';editor.value=undefined;editorSource.value=undefined;lockedKind.value=undefined
@@ -175,7 +187,7 @@ watch(() => sourceKey(props.source), () => {
 
 <template>
   <section class="memos-workspace" aria-label="生活备忘">
-    <header class="memo-header" :class="{ 'is-root': screen === 'overview' }"><div v-if="screen !== 'overview'" class="memo-header-meta"><button type="button" class="memo-back" :disabled="!!pending && screen === 'editor'" @click="back">‹ 返回</button></div><div class="memo-heading-copy"><h2 ref="heading" tabindex="-1">{{ pageTitle }}</h2></div><button v-if="writable && ['overview','category'].includes(screen)" type="button" class="memo-add" :disabled="!!pending" @click="previous = screen; startEditor()">＋ 新建</button><button v-else-if="screen === 'detail' && record && writable && record.can_edit !== false" type="button" class="memo-primary" :disabled="!!pending" @click="startEditor(record)">编辑</button></header>
+    <header class="memo-header" :class="{ 'is-root': screen === 'overview', 'detail-nav': screen === 'detail' }"><div v-if="screen !== 'overview'" class="memo-header-meta"><button type="button" class="memo-back" :disabled="!!pending && screen === 'editor'" @click="back">‹ 返回</button></div><div v-if="screen !== 'detail'" class="memo-heading-copy"><h2 ref="heading" tabindex="-1">{{ pageTitle }}</h2></div><button v-if="writable && ['overview','category'].includes(screen)" type="button" class="memo-add" :disabled="!!pending" @click="previous = screen; startEditor()">＋ 新建</button><button v-else-if="screen === 'detail' && record && writable && record.can_edit !== false" type="button" class="memo-text-button" :disabled="!!pending" @click="startEditor(record)">编辑</button></header>
     <p v-if="error || operationError && screen !== 'editor' && !categoryDialog" class="memo-error memo-banner" role="alert">{{ error || operationError }}</p>
     <p v-if="loading" class="memo-muted memo-banner" role="status">正在读取本机记录…</p>
     <main class="memo-body">
@@ -185,7 +197,63 @@ watch(() => sourceKey(props.source), () => {
         <section class="memo-section" aria-label="备忘分类"><div class="memo-section-head"><h3>备忘分类</h3><button v-if="writable" type="button" class="memo-text-button" @click="showCategoryDialog">＋ 新建分类</button></div><div v-if="categoryCards.length" class="memo-category-grid"><div v-for="item in categoryCards" :key="item.id" class="memo-category-tile"><button type="button" class="memo-category-card" :class="{held:sort.held.value===item.id,over:sort.over.value===item.id}" :data-memo-sort="item.id" data-sort-group="category" @pointerdown="sort.down($event,item.id,'category')" @pointermove="sort.move" @pointerup="sort.up" @pointercancel="sort.cancel" @click.capture="sort.click" @keydown="keyboardSort($event,'category',item.id)" @contextmenu.prevent="item.id && manageCategory(item,'rename')" @keydown.shift.f10.prevent="item.id && manageCategory(item,'rename')" @click="categoryId = item.id; showingArchive=false;go('category')"><span aria-hidden="true">▤</span><strong :title="item.name">{{ item.name }}</strong><small>{{ records.filter(record => !record.archived && (record.category_id??'') === item.id).length }} 条备忘</small></button></div></div><p v-else class="memo-empty">还没有备忘分类，先建一个吧。</p></section>
       </template>
       <template v-else-if="screen === 'category'"><div class="memo-section-head"><button type="button" class="memo-text-button" @click="showingArchive=!showingArchive">{{ showingArchive?'返回当前记录':'查看归档' }}</button><span class="memo-muted">{{ showingArchive?`归档记录 · 共 ${listRecords.length} 条`:'当前记录' }}</span></div><div v-if="visibleListRecords.length" class="memo-block"><template v-for="item in visibleListRecords" :key="item.occurrence_key??item.id"><MemoRecordRow :record="item" :writable="writable && !item.archived" :busy="!!pending" @open="open(item)" @complete="complete(item)" /></template></div><p v-else class="memo-empty">{{ showingArchive?'还没有归档记录。':screen === 'category' ? '这个分类还没有备忘。' : '还没有日程安排。' }}</p><nav v-if="showingArchive && archivePageCount > 1" class="memo-record-actions" aria-label="归档分页"><button type="button" class="memo-secondary" :disabled="archivePageNumber<=1" @click="archivePageNumber--">上一页</button><span class="memo-muted" aria-live="polite">第 {{ archivePageNumber }} / {{ archivePageCount }} 页</span><button type="button" class="memo-secondary" :disabled="archivePageNumber>=archivePageCount" @click="archivePageNumber++">下一页</button></nav></template>
-      <article v-else-if="screen === 'detail' && record" class="memo-detail"><div class="memo-title-block"><p class="memo-eyebrow">{{ categoryLabel(record) }} · {{ scopeLabel }}</p><h2 class="memo-record-title">{{ record.title }}</h2><p class="memo-muted">{{ record.creator_name }}记录</p><p v-if="record.occurrence_at||record.recurrence&&record.current_occurrence_at" class="memo-occurrence-label">{{ record.occurrence_at?'本次提醒':'当前提醒' }}：{{ occurrenceLabel(record.occurrence_at??record.current_occurrence_at!) }}</p><p v-if="record.pending" class="memo-muted">已保存到本机 · 待同步</p><p v-if="record.error" class="memo-error" role="alert">{{ record.error }}</p></div><section aria-label="完成状态"><div v-if="writable" class="memo-record-actions"><button type="button" class="memo-primary" :disabled="!!pending" @click="complete(record)">{{ record.completed ? record.occurrence_at?'重新打开本次':'重新打开' : record.recurrence&&record.reminders?.length?'完成本次':'标记完成' }}</button><button type="button" v-if="focusEnabled && !record.archived" class="memo-secondary" :disabled="!!pending" :aria-pressed="record.focused" @click="focus(record)">{{ record.focused ? '移出待办' : '加入待办事项' }}</button></div><p class="memo-muted memo-caption">{{ record.occurrence_at ? record.completed?'本次已完成，其他时间继续提醒。':record.archived?'本次已归档。':'仅完成这个时间，其他时间继续提醒。' : record.recurrence&&record.reminders?.length?'每个时间分别完成，其他时间继续提醒。':record.completed ? '已完成并归档。' : record.archived ? '已归档。' : source.scope === 'shared' ? '家庭任一成员完成后自动归档。' : '完成后自动归档。' }}</p></section><p v-if="record.archived" class="memo-muted memo-caption">{{ record.archived_at?`归档于 ${new Date(record.archived_at).toLocaleString('zh-CN')}`:'历史归档，归档时间未记录。' }}</p><dl v-if="record.kind==='schedule'" class="memo-range"><div><dt>开始</dt><dd>{{ dayLabel(record.start_date) }} · {{ record.start_time || '全天' }}</dd></div><div v-if="record.end_date"><dt>结束</dt><dd>{{ dayLabel(record.end_date) }} · {{ record.end_time || '全天' }}</dd></div></dl><section class="memo-reading memo-markdown" aria-label="正文"><slot name="markdown" :markdown="record.body"><p class="memo-plaintext">{{ record.body || '暂无正文' }}</p></slot></section><section v-if="record.reminders?.length||record.recurrence" class="memo-config-summary"><h3>提醒与重复</h3><ul v-if="record.reminders?.length"><li v-for="reminder in record.reminders" :key="reminder.id">{{ reminder.mode==='relative'?`日程开始前 ${reminder.offset_minutes} 分钟`:reminder.at?new Date(reminder.at).toLocaleString('zh-CN'):'未指定时间' }} · {{ reminder.all_members?'家庭全员':reminder.recipient_ids.map(id=>members.find(m=>m.id===id)?.display_name??'原成员').join('、') }}</li></ul><p v-if="record.recurrence" class="memo-muted">{{ record.recurrence.calendar==='lunar'?'农历':'公历' }} · 每 {{ record.recurrence.interval }} {{ ({daily:'天',weekly:'周',monthly:'月',yearly:'年'})[record.recurrence.frequency] }}<template v-if="record.recurrence.weekdays?.length"> · {{ record.recurrence.weekdays.map(day=>['周一','周二','周三','周四','周五','周六','周日'][day-1]).join('、') }}</template><template v-if="record.recurrence.month_days?.length"> · {{ record.recurrence.month_days.join('、') }}号</template></p></section><MemoAttachments v-if="record.attachments.length" :files="record.attachments" @request="attachmentRequest" /><section v-if="writable" class="memo-record-actions"><button type="button" class="memo-secondary" :disabled="!!pending" @click="archiveRecord">{{ record.archived?'恢复为未完成':record.recurrence&&!record.occurrence_at?'归档整条备忘':'归档' }}</button><button v-if="!record.occurrence_at" type="button" class="memo-text-button" :disabled="!!pending" @click="removeRecord">{{ record.can_delete?'删除记录':'申请删除' }}</button></section><section v-for="request in deletionRequests.filter(r=>r.memo_id===record!.id&&r.status==='pending')" :key="request.id" class="memo-setting-group"><h3>删除申请</h3><p>{{ request.reason||'未填写原因' }}</p><div v-if="request.author_id===source.user_id" class="memo-record-actions"><button type="button" class="memo-secondary" :disabled="!!pending" @click="sendOperation('deletion_request',request.id,request.version,'decide',{accepted:true})">同意删除</button><button type="button" class="memo-text-button" :disabled="!!pending" @click="sendOperation('deletion_request',request.id,request.version,'decide',{accepted:false})">拒绝删除</button></div></section></article>
+      <article v-else-if="screen === 'detail' && record" :key="record.id + (record.occurrence_at ?? '')" class="memo-detail">
+        <div class="memo-title-block">
+          <p class="memo-eyebrow">{{ categoryLabel(record) }} · {{ scopeLabel }}</p>
+          <h2 ref="heading" tabindex="-1" class="memo-record-title">{{ record.title }}</h2>
+          <p class="memo-muted">{{ record.creator_name }}记录</p>
+          <p v-if="record.pending" class="memo-muted">已保存到本机 · 待同步</p>
+          <p v-if="record.error" class="memo-error" role="alert">{{ record.error }}</p>
+        </div>
+        <p v-if="record.archived" class="memo-muted memo-caption">{{ record.archived_at?`归档于 ${new Date(record.archived_at).toLocaleString('zh-CN')}`:'历史归档，归档时间未记录。' }}</p>
+        <section v-if="recordBody.body.trim()" class="memo-reading memo-markdown" aria-label="正文">
+          <MemoMarkdown :markdown="recordBody.body" :tasks="recordBody.tasks" :writable="writable&&!pending&&!record.archived" @check="checkBody" />
+        </section>
+        <div v-if="detailReminder" class="detail-reminder">
+          <span>{{ record.occurrence_at ? '本次提醒' : '提醒时间' }}</span>
+          <time :datetime="detailReminder">{{ occurrenceLabel(detailReminder) }}</time>
+        </div>
+        <section v-if="writable" class="memo-record-actions detail-actions" aria-label="备忘操作">
+          <button type="button" class="memo-primary" :title="record.archived ? undefined : record.occurrence_at || completionScope(record) === 'occurrence' ? '仅完成本次提醒' : '完成后归档'" :disabled="!!pending" @click="complete(record)">{{ record.completed ? record.occurrence_at?'重新打开本次':'重新打开' : record.recurrence&&record.reminders?.length?'完成本次':'标记完成' }}</button>
+          <details class="detail-more">
+            <summary>更多操作</summary>
+            <div class="detail-options">
+              <button type="button" v-if="focusEnabled && !record.archived" class="memo-secondary" :disabled="!!pending" :aria-pressed="record.focused" @click="focus(record)">{{ record.focused ? '移出待办' : '加入待办事项' }}</button>
+              <button type="button" class="memo-secondary" :disabled="!!pending" @click="archiveRecord">{{ record.archived?'恢复为未完成':record.recurrence&&!record.occurrence_at?'归档整条备忘':'归档' }}</button>
+              <button v-if="!record.occurrence_at" type="button" class="memo-text-button" :disabled="!!pending" @click="removeRecord">{{ record.can_delete?'删除记录':'申请删除' }}</button>
+            </div>
+          </details>
+        </section>
+        <dl v-if="record.kind==='schedule'" class="memo-range">
+          <div>
+            <dt>开始</dt>
+            <dd>{{ dayLabel(record.start_date) }} · {{ record.start_time || '全天' }}</dd>
+          </div>
+          <div v-if="record.end_date">
+            <dt>结束</dt>
+            <dd>{{ dayLabel(record.end_date) }} · {{ record.end_time || '全天' }}</dd>
+          </div>
+        </dl>
+        <MemoAttachments v-if="record.attachments.length" :files="record.attachments" @request="attachmentRequest" />
+        <details v-if="record.reminders?.length||record.recurrence" class="memo-config-summary">
+          <summary>提醒设置</summary>
+          <p v-for="delay in record.snoozed_occurrences" :key="delay.occurrence_at" class="memo-occurrence-label">{{ occurrenceLabel(delay.occurrence_at) }} · 已推后至 {{ occurrenceLabel(delay.delivery_at) }}</p>
+          <ul v-if="record.reminders?.length">
+            <li v-for="reminder in record.reminders" :key="reminder.id">{{ reminder.mode==='relative'?`日程开始前 ${reminder.offset_minutes} 分钟`:reminder.at?new Date(reminder.at).toLocaleString('zh-CN'):'未指定时间' }} · {{ reminder.all_members?'家庭全员':reminder.recipient_ids.map(id=>members.find(m=>m.id===id)?.display_name??'原成员').join('、') }}</li>
+          </ul>
+          <p v-if="record.recurrence" class="memo-muted">{{ record.recurrence.calendar==='lunar'?'农历':'公历' }} · 每 {{ record.recurrence.interval }} {{ ({daily:'天',weekly:'周',monthly:'月',yearly:'年'})[record.recurrence.frequency] }}<template v-if="record.recurrence.weekdays?.length"> · {{ record.recurrence.weekdays.map(day=>['周一','周二','周三','周四','周五','周六','周日'][day-1]).join('、') }}</template>
+          <template v-if="record.recurrence.month_days?.length"> · {{ record.recurrence.month_days.join('、') }}号</template>
+        </p>
+      </details>
+      <section v-for="request in deletionRequests.filter(r=>r.memo_id===record!.id&&r.status==='pending')" :key="request.id" class="memo-setting-group">
+        <h3>删除申请</h3>
+        <p>{{ request.reason||'未填写原因' }}</p>
+        <div v-if="request.author_id===source.user_id" class="memo-record-actions">
+          <button type="button" class="memo-secondary" :disabled="!!pending" @click="sendOperation('deletion_request',request.id,request.version,'decide',{accepted:true})">同意删除</button>
+          <button type="button" class="memo-text-button" :disabled="!!pending" @click="sendOperation('deletion_request',request.id,request.version,'decide',{accepted:false})">拒绝删除</button>
+        </div>
+      </section>
+    </article>
       <MemoComposer v-else-if="screen === 'editor' && editor" :key="editorSource ? sourceKey(editorSource) + (editor.id ?? 'new') : 'editor'" :initial="editor" :categories="categories" :saving="pending?.action === 'save'" :error="operationError" :schedule-enabled="scheduleEnabled" :focus-enabled="focusEnabled" :members="members" :current-user-id="source.user_id" @save="save" @cancel="cancelEditor" @change="changeDraft" @create-category="showCategoryDialog" @request-attachment="attachmentRequest"><template #markdown="slotProps"><slot name="markdown" :markdown="slotProps.markdown"><p class="memo-plaintext">{{ slotProps.markdown || '还没有正文。' }}</p></slot></template></MemoComposer>
       <p v-else class="memo-empty">记录不可用，请返回后刷新。</p>
     </main>

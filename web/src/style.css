@@ -535,3 +535,14 @@ footer { padding: 24px 8px 0; text-align: center; font-size: 12px; line-height: 
 .finance-review .review-sections { max-width: 400px; }
 .finance-review .review-sections button { min-height: 44px; }
 .finance-review .review-task > h3:first-child { margin-top: 0; }
+
+.report-generator { margin-bottom: 24px; }
+.report-generator form { margin: 12px 0 20px; }
+.report-delete { margin: 8px 0 16px; color: var(--sl-muted); }
+
+.device-summary { white-space: pre-wrap; overflow-wrap: anywhere; font-family: inherit; font-size: 13px; line-height: 1.8; padding: 16px; background: var(--sl-field); border-radius: 8px; user-select: text; }
+.device-diagnostics > p, .device-diagnostics > pre { margin: 12px 0; }
+
+/* Brief action receipts float above the page instead of reserving header space. */
+.action-feedback { position: fixed; z-index: 40; left: 50%; bottom: max(24px,env(safe-area-inset-bottom)); transform: translateX(-50%); display: flex; align-items: center; gap: 12px; width: max-content; max-width: calc(100vw - 32px); padding: 8px 8px 8px 16px; border: 1px solid var(--sl-line); border-radius: 14px; background: var(--sl-paper); color: var(--sl-ink); box-shadow: 0 8px 28px #18332f20; font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.action-feedback .icon-button { flex-shrink: 0; }

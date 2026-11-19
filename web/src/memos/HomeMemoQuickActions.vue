@@ -8,13 +8,20 @@ const props=defineProps<{records:MemoRecordView[];categories:MemoCategoryView[];
 const emit=defineEmits<{create:[];open:[record:MemoRecordView];complete:[record:MemoRecordView];expense:[]}>()
 const focused=computed(()=>homeFocusedRecords(props.records))
 const key=(item:MemoRecordView)=>`${item.kind==='memo'&&item.origin==='plan_task'?'plan_task':'memo'}:${item.id}`
-function category(item:MemoRecordView){return item.kind==='memo'&&item.origin==='plan_task'?'计划任务':(props.categories.find(c=>c.id===item.category_id)?.name??'未分类')+(item.recurrence&&item.current_occurrence_at?' · '+occurrenceLabel(item.current_occurrence_at):'')}
+function homeSubtitle(item: MemoRecordView) {
+  if (item.kind === 'memo' && item.origin === 'plan_task') return '计划任务'
+  const category = props.categories.find(c => c.id === item.category_id)?.name ?? '未分类'
+  const occurrence = item.occurrence_at ?? item.current_occurrence_at
+  if (!occurrence) return category
+  const delay = item.snoozed_occurrences?.find(row => Date.parse(row.occurrence_at) === Date.parse(occurrence))
+  return [category, occurrenceLabel(delay?.delivery_at ?? occurrence)].join(' · ')
+}
 </script>
 <template>
   <section class="home-quick" aria-label="首页快捷操作">
     <div class="home-focus-heading"><h2>待办事项</h2><button type="button" class="memo-text-button" :disabled="!writable||busy" @click="emit('create')">＋ 新建备忘</button></div>
     <div v-if="focused.length" class="home-focus-list" aria-label="待办事项，上下滑动查看更多" tabindex="0">
-      <div v-for="item in focused" :key="key(item)" class="home-focus-item"><MemoRecordRow :record="item" :category="category(item)" :writable="writable" :busy="busy" @open="emit('open',item)" @complete="emit('complete',item)" /></div>
+      <div v-for="item in focused" :key="key(item)" class="home-focus-item"><MemoRecordRow :record="item" home :category="homeSubtitle(item)" :writable="writable" :busy="busy" @open="emit('open',item)" @complete="emit('complete',item)" /></div>
     </div>
     <p v-else class="home-focus-empty">把想跟进的事记在这里。</p>
     <button type="button" class="home-quick-expense" :disabled="!writable||busy" @click="emit('expense')"><span class="home-quick-plus" aria-hidden="true">＋</span><span><strong>快速记账</strong><small>{{ scopeLabel }}</small></span><span aria-hidden="true">›</span></button>

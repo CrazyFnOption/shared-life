@@ -55,6 +55,25 @@ const deletingRecord=ref(false)
 const deletionReason=ref('')
 const categoryInput = ref<HTMLInputElement>()
 let categoryOpener: HTMLElement | null = null
+const moreActions = ref<HTMLDetailsElement>()
+function closeMoreActions(event: Event) {
+  const menu = moreActions.value
+  if (menu?.open && event.target instanceof Node && !menu.contains(event.target)) menu.open = false
+}
+watch(moreActions, (menu, _, cleanup) => {
+  if (!menu) return
+  document.addEventListener('pointerdown', closeMoreActions)
+  document.addEventListener('focusin', closeMoreActions)
+  cleanup(() => {
+    document.removeEventListener('pointerdown', closeMoreActions)
+    document.removeEventListener('focusin', closeMoreActions)
+  })
+})
+function dismissMoreActions() {
+  if (!moreActions.value) return
+  moreActions.value.open = false
+  moreActions.value.querySelector('summary')?.focus()
+}
 const heading = ref<HTMLElement>()
 const categories = computed(() => [...props.categories].sort((a, b) => a.position - b.position))
 const category = computed(() => categories.value.find(item => item.id === categoryId.value))
@@ -215,9 +234,9 @@ watch(() => sourceKey(props.source), () => {
         </div>
         <section v-if="writable" class="memo-record-actions detail-actions" aria-label="备忘操作">
           <button type="button" class="memo-primary" :title="record.archived ? undefined : record.occurrence_at || completionScope(record) === 'occurrence' ? '仅完成本次提醒' : '完成后归档'" :disabled="!!pending" @click="complete(record)">{{ record.completed ? record.occurrence_at?'重新打开本次':'重新打开' : record.recurrence&&record.reminders?.length?'完成本次':'标记完成' }}</button>
-          <details class="detail-more">
+          <details ref="moreActions" class="detail-more" @keydown.esc.stop="dismissMoreActions">
             <summary>更多操作</summary>
-            <div class="detail-options">
+            <div class="detail-options" @click.capture="dismissMoreActions">
               <button type="button" v-if="focusEnabled && !record.archived" class="memo-secondary" :disabled="!!pending" :aria-pressed="record.focused" @click="focus(record)">{{ record.focused ? '移出待办' : '加入待办事项' }}</button>
               <button type="button" class="memo-secondary" :disabled="!!pending" @click="archiveRecord">{{ record.archived?'恢复为未完成':record.recurrence&&!record.occurrence_at?'归档整条备忘':'归档' }}</button>
               <button v-if="!record.occurrence_at" type="button" class="memo-text-button" :disabled="!!pending" @click="removeRecord">{{ record.can_delete?'删除记录':'申请删除' }}</button>

@@ -167,3 +167,21 @@
 .memos-workspace .memo-reading .memo-markdown :is(td,th) {
   padding:6px 12px; text-align:start; border-bottom:1px solid var(--memo-line);
 }
+
+.memos-workspace .detail-actions { justify-content:space-between; align-items:center; flex-wrap:nowrap; }
+.memos-workspace .detail-more { position:relative; }
+.memos-workspace .detail-more > summary { display:flex; align-items:center; gap:8px; list-style:none; min-height:44px; padding:8px 10px; }
+.memos-workspace .detail-more > summary::-webkit-details-marker { display:none; }
+.memos-workspace .detail-more > summary::after { content:''; width:6px; height:6px; border:solid currentColor; border-width:0 1.5px 1.5px 0; transform:rotate(45deg); }
+.memos-workspace .detail-more[open] > summary::after { transform:rotate(225deg); }
+.memos-workspace .detail-options {
+  position:absolute; z-index:3; inset-inline-end:0; top:100%; width:168px;
+  padding:4px; gap:0; background:var(--memo-paper); border:1px solid var(--memo-line);
+  border-radius:12px; box-shadow:0 5px 18px #173d3714;
+}
+.memos-workspace .detail-options > button {
+  justify-content:flex-start; text-align:start; padding:10px 12px; width:100%; min-height:44px;
+  color:var(--memo-ink); font-size:14px; font-weight:500; border:0; border-radius:7px; background:transparent;
+}
+.memos-workspace .detail-options > button:hover,.memos-workspace .detail-options > button:focus-visible { background:var(--memo-control); }
+.memos-workspace .detail-options > .memo-text-button { color:var(--memo-error); }

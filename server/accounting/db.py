@@ -53,7 +53,7 @@ def connect(db_path: str | Path, *, read_only=False):
         connection.close()
 
 
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 MAX_COUNTER = 9223372036854775807
 
 
@@ -70,7 +70,7 @@ def preflight(db_path):
         if not {'users','expenses','operations','revisions'}.issubset(tables):
             raise RuntimeError('unsupported_database_schema')
         marker = 'schema_migrations' in tables and db.execute("SELECT 1 FROM schema_migrations WHERE name='multi-family-v2'").fetchone()
-        if version in (8,9,10,11,12,13) and marker:
+        if version in (8,9,10,11,12,13,14) and marker:
             expected = expected_columns(version)
             if tables != set(expected) or any({r['name'] for r in db.execute(f'PRAGMA table_info({table})')} != columns for table,columns in expected.items()):
                 raise RuntimeError('unsupported_database_schema')
@@ -83,13 +83,14 @@ def preflight(db_path):
                     raise RuntimeError('unsupported_database_schema')
             if [(r['name'],r['pk']) for r in db.execute('PRAGMA table_info(family_members)') if r['pk']] != [('user_id',1),('family_id',2)]:
                 raise RuntimeError('unsupported_database_schema')
-            if version in (9,10,11,12,13):
+            if version in (9,10,11,12,13,14):
                 markers={'families-v1','family-owners-v1','multi-family-v2','memos-v1','plans-v1'}
                 if version>=10:
                     markers.add('memo-archive-v1')
                     if version>=11:markers.add('ai-v2')
                     if version>=12:markers.add('plan-bodies-v1')
                     if version>=13:markers.add('memo-actions-v1')
+                    if version>=14:markers.add('feedback-v1')
                     column=next(r for r in db.execute('PRAGMA table_info(memos)') if r['name']=='archive_state_json')
                     if (column['type'],column['notnull'],column['dflt_value'],column['pk'])!=('TEXT',1,"'{}'",0):
                         raise RuntimeError('unsupported_database_schema')
@@ -131,15 +132,16 @@ def expected_columns(version):
     with connect(':memory:') as reference:
         reference.execute('BEGIN')
         _initialize_legacy(reference)
-        if version in (8,9,10,11,12,13):
+        if version in (8,9,10,11,12,13,14):
             _migrate_multi_family(reference)
-        if version in (9,10,11,12,13):
+        if version in (9,10,11,12,13,14):
             _migrate_memos(reference)
         if version>=10:
             _migrate_memo_archive(reference)
         if version>=11:_migrate_ai(reference)
         if version>=12:_migrate_plan_bodies(reference)
         if version>=13:_migrate_memo_actions(reference)
+        if version>=14:_migrate_feedback(reference)
         return {r['name']:frozenset(c['name'] for c in reference.execute(f"PRAGMA table_info({r['name']})")) for r in reference.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
 
 
@@ -161,6 +163,7 @@ def initialize_database(db_path: str | Path) -> None:
             _migrate_ai(db)
             _migrate_plan_bodies(db)
             _migrate_memo_actions(db)
+            _migrate_feedback(db)
             db.commit()
         except BaseException:
             db.rollback()
@@ -232,6 +235,8 @@ def migrate_database(db_path):
                 _migrate_plan_bodies(db)
             if db.execute('PRAGMA user_version').fetchone()[0]==12:
                 _migrate_memo_actions(db)
+            if db.execute("PRAGMA user_version").fetchone()[0]==13:
+                _migrate_feedback(db)
             from server.automation.backups import validate_database
             validate_database(db)
             verify(db,before)
@@ -276,6 +281,18 @@ def _migrate_plan_bodies(db):
         if statement.strip():db.execute(statement)
     db.execute("INSERT INTO schema_migrations(name) VALUES('plan-bodies-v1')")
     db.execute('PRAGMA user_version=12')
+
+
+def _migrate_feedback(db):
+    db.execute("""CREATE TABLE feedback (
+        owner_id TEXT NOT NULL REFERENCES users(id),
+        id TEXT NOT NULL,
+        body TEXT NOT NULL CHECK(length(trim(body)) BETWEEN 1 AND 2000),
+        created_at TEXT NOT NULL,
+        completed_at TEXT,
+        PRIMARY KEY(owner_id,id))""")
+    db.execute("INSERT INTO schema_migrations(name) VALUES('feedback-v1')")
+    db.execute('PRAGMA user_version=14')
 
 
 def _migrate_memo_actions(db):

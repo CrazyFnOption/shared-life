@@ -304,3 +304,22 @@ def test_password_change_rejects_login_verified_before_change(setup, monkeypatch
         }, headers=WRITE)
         assert fresh.status_code == 200
         assert stale_login.get('/api/auth/me').json() == {'user': alice}
+
+
+def test_account_feedback_lifecycle(setup):
+    path, _, alice, bob, *_ = setup
+    with connect(path) as db:
+        restore = db.execute('SELECT restore_id FROM app_state').fetchone()[0]
+    for client in (alice, bob):
+        client.headers.update({'X-App-Protocol':'2','X-Restore-Id':restore})
+    url = '/api/v2/feedback'
+    item = {'id':str(uuid4()),'body':'虚构改进'}
+    for _ in range(2):
+        assert alice.post(url,json=item).status_code == 204
+    assert len(alice.get(url).json()) == 1
+    assert bob.get(url).json() == []
+    complete = f"{url}/{item['id']}/complete"
+    assert bob.post(complete,json={}).status_code == 404
+    assert alice.get(url).json()[0]['completed_at'] is None
+    assert alice.post(complete,json={}).status_code == 204
+    assert alice.get(url).json()[0]['completed_at']

@@ -28,6 +28,10 @@ def config():
     return c
 
 
+def fixture_offline_context(files, config):
+    return {**files, 'Dockerfile.offline': blob('RUN npm ci\n'), 'Dockerfile.offline.dockerignore': blob('**\n')}
+
+
 def manifest():
     return {'commit': '2' * 40, 'baseline': '1' * 40, 'release_id': 'test-release',
             'schema': 9, 'backup_format': 2, 'source_files': {}, 'runtime': {'index.html': 'a' * 64},
@@ -163,13 +167,17 @@ class ReviewedRuntimeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary) / 'release'
             def npm(argv, cwd, **unused):
+                if 'config' in argv:
+                    return subprocess.CompletedProcess(argv, 0, stdout=temporary)
                 dist = Path(cwd) / 'web/dist';dist.mkdir(parents=True, exist_ok=True)
                 (dist / 'index.html').write_text('fixture');(dist / 'sw.js').write_text('fixture sw')
                 return subprocess.CompletedProcess(argv, 0)
-            trees = lambda repo, commit: self.before if commit == '1' * 40 else self.after
+            lock = {'web/package-lock.json': blob({'lockfileVersion': 3, 'packages': {'': {}}})}
+            trees = lambda repo, commit: (self.before if commit == '1' * 40 else self.after) | lock
             with patch('release.core.git', side_effect=lambda repo, *args: args[-1].split('^')[0].encode()), \
                  patch('release.core.tree', side_effect=trees), patch('release.core.subprocess.run', side_effect=npm), \
-                 patch('release.core.offline_context', side_effect=lambda files, config: files):
+                 patch('release.core.ignored_location'), \
+                 patch('release.core.offline_context', side_effect=fixture_offline_context):
                 result = prepare(REPO, '2' * 40, '1' * 40, self.config, output)
                 self.assertEqual(result['reviewed_runtime_changes'], [self.record])
                 self.assertEqual(verify_bundle(output, self.config, REPO)['reviewed_runtime_changes'], [self.record])
@@ -280,6 +288,8 @@ class FrontendDependencyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary) / 'release'
             def npm(argv, cwd, **unused):
+                if 'config' in argv:
+                    return subprocess.CompletedProcess(argv, 0, stdout=temporary)
                 dist = Path(cwd) / 'web/dist';(dist / 'assets').mkdir(parents=True, exist_ok=True)
                 (dist / 'index.html').write_text('fixture');(dist / 'sw.js').write_text('fixture sw')
                 for index in range(7): (dist / 'assets' / ('chunk-' + str(index) + '.js')).write_text(str(index))
@@ -287,7 +297,9 @@ class FrontendDependencyTests(unittest.TestCase):
             trees = lambda repo, commit: before if commit == '1' * 40 else after
             with patch('release.core.git', side_effect=lambda repo, *args: args[-1].split('^')[0].encode()), \
                  patch('release.core.tree', side_effect=trees), patch('release.core.subprocess.run', side_effect=npm), \
-                 patch('release.core.offline_context', side_effect=lambda files, config: files):
+                 patch('release.core.ignored_location'), \
+                 patch('release.core.offline_context', side_effect=fixture_offline_context), \
+                 patch('release.npm_cache.locked_tarballs', return_value={}):
                 result = prepare(REPO, '2' * 40, '1' * 40, c, output)
                 self.assertEqual(len(result['runtime']), 9)
                 self.assertIn('assets/chunk-6.js', result['runtime'])

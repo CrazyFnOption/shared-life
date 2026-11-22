@@ -13,6 +13,7 @@ import threading
 from uuid import UUID, uuid4
 
 from argon2.exceptions import VerifyMismatchError, InvalidHashError, VerificationError
+from pydantic import BaseModel, Field
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
@@ -25,6 +26,11 @@ from server.accounting.categories import ensure_category, visible_categories
 from server.accounting import images
 from server.automation import reports, api as automation_api
 from server.automation.worker import Worker
+
+
+class FeedbackInput(BaseModel):
+    id: UUID
+    body: str = Field(min_length=1,max_length=2000)
 
 
 SESSION_COOKIE = "shared_expense_session"
@@ -151,7 +157,7 @@ def create_app(
                 db.expected_restore = supplied
         if v2:
             request.state.source = {'user_id':user['id'],'restore_id':current['restore_id']}
-            account_domain = path in {'/api/context','/api/account/default-scope','/api/v2/families','/api/v2/push-subscriptions','/api/v2/push-subscriptions/check'} or (path == '/api/v2/family-invites' and request.method=='GET') or (path.startswith('/api/v2/family-invites/') and path.rsplit('/',1)[-1] in {'accept','reject'})
+            account_domain = path.startswith('/api/v2/feedback/') or path == '/api/v2/feedback' or path in {'/api/context','/api/account/default-scope','/api/v2/families','/api/v2/push-subscriptions','/api/v2/push-subscriptions/check'} or (path == '/api/v2/family-invites' and request.method=='GET') or (path.startswith('/api/v2/family-invites/') and path.rsplit('/',1)[-1] in {'accept','reject'})
             if not account_domain:
                 scope = request.headers.get('x-scope')
                 fid = request.headers.get('x-family-id')
@@ -440,6 +446,31 @@ def create_app(
     def update_settings(body: automation_api.Settings, db: Database, user: ExpectedUser, scope: Literal['private','shared']='shared'):
         return automation_api.set_settings(db, user['id'], body, worker, scope)
 
+    @app.get("/api/v2/feedback")
+    def feedback_list(db: Database, user: ExpectedUser):
+        return [dict(row) for row in db.execute(
+            "SELECT id,body,completed_at FROM feedback WHERE owner_id=? ORDER BY created_at DESC,id",
+            (user['id'],))]
+
+    @app.post("/api/v2/feedback", status_code=204)
+    def create_feedback(body: FeedbackInput, db: Database, user: ExpectedUser):
+        content = body.body.strip()
+        if not content:
+            raise HTTPException(422)
+        db.execute('BEGIN IMMEDIATE')
+        db.execute("INSERT INTO feedback(owner_id,id,body,created_at) VALUES(?,?,?,?) ON CONFLICT(owner_id,id) DO NOTHING",
+                   (user['id'],str(body.id),content,datetime.now(UTC).isoformat()))
+        db.commit()
+
+    @app.post("/api/v2/feedback/{item_id}/complete", status_code=204)
+    def complete_feedback(item_id: UUID, db: Database, user: ExpectedUser):
+        db.execute('BEGIN IMMEDIATE')
+        result = db.execute("UPDATE feedback SET completed_at=coalesce(completed_at,?) WHERE owner_id=? AND id=?",
+                            (datetime.now(UTC).isoformat(),user['id'],str(item_id)))
+        if not result.rowcount:
+            raise HTTPException(404)
+        db.commit()
+
     @app.get("/api/reports")
     def report_list(db: Database, user: ExpectedUser, scope: Literal['shared','private']='shared'):
         db.execute('BEGIN')
@@ -514,7 +545,7 @@ def create_app(
     # Versioned paths reuse the same handlers; the dependency enforces protocol 2.
     from fastapi.routing import APIRoute
     for route in list(app.routes):
-        if isinstance(route,APIRoute) and route.path.startswith('/api/') and not route.path.startswith('/api/auth/') and route.path not in {'/api/health','/api/context','/api/account/default-scope'}:
+        if isinstance(route,APIRoute) and route.path.startswith('/api/') and not route.path.startswith(('/api/auth/','/api/v2/')) and route.path not in {'/api/health','/api/context','/api/account/default-scope'}:
             app.add_api_route('/api/v2/'+route.path[len('/api/'):],route.endpoint,methods=sorted(route.methods),status_code=route.status_code)
     from server.memos.api import register_routes as register_memos
     register_memos(app,Database,ExpectedUser)

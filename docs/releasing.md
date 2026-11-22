@@ -15,7 +15,7 @@ python3 scripts/release.py plan --config .local/release/config.json \
   --output .local/release/NEW_OUTPUT
 ```
 
-`prepare` 只在本地执行，生成源码包、构建上下文、SHA 清单和日志；资源数量自动统计，包括异步编辑器的 JS／CSS。npm 使用已有离线缓存；Python 离线 wheelhouse 需由部署者事先准备并核对。当前构建驱动复用既有 Docker 依赖缓存，缓存不足时可能需要正常的仓库网络访问；工具不会自动调整主机网络或升级依赖。
+`prepare` 只在本地执行，生成源码包、构建上下文、SHA 清单和日志；资源数量自动统计，包括异步编辑器的 JS／CSS。工具按 `web/package-lock.json` 校验 npm 依赖包，优先复用本地已校验的缓存。缺少或损坏的包会在准备阶段从锁文件记录的 Registry 地址获取并校验。构建包包含 Linux x64/glibc 所需依赖，目标主机在禁用网络的构建步骤运行 `npm ci --offline`。Python wheelhouse 和固定基础镜像仍需预先准备。
 
 ## 兼容边界
 

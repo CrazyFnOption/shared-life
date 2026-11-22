@@ -31,6 +31,9 @@ async function imageRequest(userId:string,expenseId:string,imageId:string,method
 }
 const business=<T>(path:string,userId:string,source:Source|FamilyContext,body?:unknown,method?:string)=>apiRequest<T>(path,userId,body,method,undefined,source)
 export const api={
+ feedback:(origin:AccountSource)=>accountRequest<{id:string;body:string;completed_at:string|null}[]>('/v2/feedback',origin),
+ addFeedback:(origin:AccountSource,id:string,body:string)=>accountRequest<void>('/v2/feedback',origin,{id,body}),
+ completeFeedback:(origin:AccountSource,id:string)=>accountRequest<void>('/v2/feedback/'+encodeURIComponent(id)+'/complete',origin,{}),
  context:async(userId:string):Promise<AccountContext>=>{const result=await fetchJson<AccountContext>('/context',{'X-App-Protocol':'2','X-Expected-User':userId});if(result.protocol_version!==2)throw new ApiError(426,'server_upgrade_required');return result},
  defaultScope:(origin:AccountSource,input:{request_id:string;base_version:number;scope:Scope;family_id:string|null})=>accountRequest<{context:AccountContext}>('/account/default-scope',origin,input,'PUT'),
  settings:(userId:string,scope:Scope,source:Source)=>business<AppSettings>(`/settings?scope=${scope}`,userId,source),

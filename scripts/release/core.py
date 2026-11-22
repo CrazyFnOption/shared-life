@@ -13,6 +13,14 @@ import tarfile
 import tempfile
 import tomllib
 
+from . import npm_cache
+
+
+OFFLINE_NPM_INSTALL = (
+    b'COPY offline-npm-cache/ /opt/build-npm-cache/\n'
+    b'RUN --network=none npm ci --offline --no-audit --no-fund --cache /opt/build-npm-cache\n'
+)
+
 
 class ReleaseError(RuntimeError):
     pass
@@ -359,6 +367,17 @@ def offline_context(files, config):
     return files
 
 
+def add_offline_npm(context, archives):
+    dockerfile, mode = context['Dockerfile.offline']
+    needle = b'RUN npm ci\n'
+    require(dockerfile.count(needle) == 1, 'Unexpected Dockerfile npm install step')
+    context['Dockerfile.offline'] = (dockerfile.replace(needle, OFFLINE_NPM_INSTALL), mode)
+    ignore, mode = context['Dockerfile.offline.dockerignore']
+    context['Dockerfile.offline.dockerignore'] = (ignore + b'\n!offline-npm-cache/\n!offline-npm-cache/**\n', mode)
+    context.update(archives)
+    return context
+
+
 def prepare(repo, commit, baseline, config, output):
     commit = git(repo, 'rev-parse', '--verify', commit + '^{commit}').decode().strip()
     baseline = git(repo, 'rev-parse', '--verify', baseline + '^{commit}').decode().strip()
@@ -376,6 +395,11 @@ def prepare(repo, commit, baseline, config, output):
     pack(output / 'source.tar.gz', files)
     hashes = {n: sha(d) for n, (d, _) in files.items()}
     unpack_checked(output / 'source.tar.gz', hashes)
+    cache = (repo / '.local/release/npm-cache').resolve()
+    ignored_location(repo, cache)
+    lock = files['web/package-lock.json'][0]
+    linux_tarballs = npm_cache.locked_tarballs(lock, npm_cache.NAS_PLATFORM)
+    local_tarballs = npm_cache.locked_tarballs(lock, npm_cache.host_platform())
     with tempfile.TemporaryDirectory(prefix='shared-life-build-') as temporary:
         stage = Path(temporary)
         for name, (data, mode) in files.items():
@@ -383,20 +407,25 @@ def prepare(repo, commit, baseline, config, output):
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_bytes(data)
             p.chmod(mode)
+        npm_config = subprocess.run(['sh', 'scripts/web.sh', 'config', 'get', 'cache'], cwd=stage,
+                                    capture_output=True, text=True)
+        require(npm_config.returncode == 0 and npm_config.stdout.strip(), 'Cannot locate local npm cache')
+        npm_cache.fill_cache(linux_tarballs | local_tarballs, cache, Path(npm_config.stdout.strip()))
         with (output / 'local-build.log').open('wb') as log:
-            # The exported candidate gets its own dependency tree, uses npm cache, and never touches working dist.
-            for command in (['sh', 'scripts/web.sh', 'ci', '--offline', '--no-audit', '--no-fund'],
+            for command in (['sh', 'scripts/web.sh', 'ci', '--offline', '--no-audit', '--no-fund', '--cache', str(cache)],
                             ['sh', 'scripts/web.sh', 'run', 'build']):
                 result = subprocess.run(command, cwd=stage, stdout=log, stderr=subprocess.STDOUT)
                 require(result.returncode == 0, 'Fixed-candidate web build failed; see local-build.log')
         dist = stage / 'web/dist'
         runtime = {str(p.relative_to(dist)): sha(p.read_bytes()) for p in dist.rglob('*') if p.is_file()}
         require('index.html' in runtime and 'sw.js' in runtime, 'Incomplete PWA runtime build')
-    context = offline_context(files, config)
+    archives = npm_cache.context_cache(linux_tarballs, cache)
+    context = add_offline_npm(offline_context(files, config), archives)
+    npm_cache.verify_context_cache(linux_tarballs, context)
     pack(output / 'context.tar.gz', context)
     context_hashes = {n: sha(d) for n, (d, _) in context.items()}
     unpack_checked(output / 'context.tar.gz', context_hashes)
-    manifest = {'version': 1, 'commit': commit, 'baseline': baseline, 'changed_files': changed,
+    manifest = {'version': 2, 'commit': commit, 'baseline': baseline, 'changed_files': changed,
                 'reviewed_runtime_changes': reviewed, 'reviewed_frontend_dependency_additions': frontend_reviewed,
                 'source_files': hashes, 'baseline_files': {n: sha(d) for n, (d, _) in before.items()},
                 'runtime': runtime, 'context_files': context_hashes,
@@ -415,11 +444,17 @@ def verify_bundle(output, config, repo):
     manifest = read_json(output / 'manifest.json')
     require(manifest['config_sha256'] == sha(json.dumps(config, sort_keys=True).encode()),
             'Config changed since prepare; prepare a new output for the new target')
+    require(manifest['version'] in (1, 2), 'Unsupported manifest version')
     for filename, key in [('source.tar.gz', 'source'), ('context.tar.gz', 'context')]:
         require(sha((output / filename).read_bytes()) == manifest[key + '_sha256'], 'Bundle hash mismatch: ' + filename)
-        unpack_checked(output / filename, manifest[key + '_files'])
-    require(manifest['version'] == 1, 'Unsupported manifest version')
+        checked = unpack_checked(output / filename, manifest[key + '_files'])
     before, after = tree(repo, manifest['baseline']), tree(repo, manifest['commit'])
+    if manifest['version'] == 2:
+        linux_tarballs = npm_cache.locked_tarballs(after['web/package-lock.json'][0], npm_cache.NAS_PLATFORM)
+        npm_cache.verify_context_cache(linux_tarballs, checked)
+        dockerfile = checked['Dockerfile.offline'][0]
+        require(dockerfile.count(OFFLINE_NPM_INSTALL) == 1 and b'RUN npm ci\n' not in dockerfile,
+                'Offline Dockerfile npm install differs')
     require(compatibility(before, after, config=config, baseline=manifest['baseline'], commit=manifest['commit'])
             == manifest['changed_files'], 'Fixed Git compatibility proof differs')
     require(reviewed_changes(before, after, config, manifest['baseline'], manifest['commit'])

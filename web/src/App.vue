@@ -30,6 +30,7 @@ import type { MemoMessage, MemoOperation, FocusTarget, MemoPartition } from './m
 import { api, apiWrites, ApiError, setRestoreId } from './api'
 import { AccountChanged, activePendingCount, frozenCount, LedgerStore, RestoreChanged } from './store'
 import { SyncEngine } from './sync'
+import FeedbackPanel from './FeedbackPanel.vue'
 import { accountSource, sameSource, sourceFor, sourceKey, sourceValid } from './sources'
 import { money, moneyInput, parseMoney } from './money'
 import Icon from './Icon.vue'
@@ -181,6 +182,8 @@ const currentSource=()=>account.value?.source??account.value?.legacy_source
 function businessSource():Source{const source=account.value?.source;if(!source)throw new Error('请先联网升级服务端并核对来源，本机待办保留');return source}
 async function readCurrent(id:string,source=currentSource()){if(!source)throw new Error('尚未核对当前范围');return store.readProjection(id,source)}
 // Navigation never owns a store, sync engine, financial draft or image cache.
+const feedbackCount=ref<number>()
+watch([userId,()=>account.value?.restore_id],()=>{feedbackCount.value=undefined})
 const route=ref<AppRoute>(parseAppRoute(window.location.hash))
 const inboxOpen=ref(false)
 const inboxMessages=ref<MemoMessage[]>([]),inboxIgnored=ref(false),inboxLoading=ref(false),inboxBusy=ref(false),inboxError=ref('')
@@ -282,7 +285,11 @@ function homeAndRefresh(){
 function hashChanged(){
   route.value=parseAppRoute(window.location.hash)
   closeAccountTools();bookPicker.value=false;inboxOpen.value=false
-  void nextTick(()=>{if(visibleDialog())focusDialog();else document.querySelector<HTMLElement>(route.value==='/home'?'.life-eyebrow':route.value==='/accounting'?'.accounting-heading h1':'.life-settings h1, .config-page-head h1, .config-page-head h2')?.focus()})
+  void nextTick(()=>{
+    if(visibleDialog()){focusDialog();return}
+    const selector=route.value==='/home'?'.life-eyebrow':route.value==='/accounting'?'.accounting-heading h1':'.life-settings h1, .config-page-head h1, .config-page-head h2'
+    Array.from(document.querySelectorAll<HTMLElement>(selector)).find(heading=>heading.getClientRects().length)?.focus()
+  })
 }
 function returnFromConfig(){navigate('/settings')}
 function openFinancialRequests(){navigate('/accounting');if(resumeParkedFinancialInput())return false;requestBoard.value=true;requestMessage.value='';return true}
@@ -793,6 +800,7 @@ async function save(): Promise<void> {
   const draft = form.value
   let data
   try {
+    if(draft.scope==='shared' && (!draft.category.trim() || draft.category.trim()==='未分类')) throw new Error('请选择共同支出分类')
     const purpose=draft.purpose.trim()
     if (!purpose || purpose.length>500) throw new Error('请填写详细用途（1～500字）')
     if (draft.location.length>200) throw new Error('地点最多200字')
@@ -1135,6 +1143,7 @@ onUnmounted(() => { clearActionFeedback();window.removeEventListener('keydown',s
         <nav class="settings-menu" aria-label="配置项目">
           <a href="#/settings/account"><Icon name="user"/><span><strong>账号与密码</strong><small>个人资料与登录安全</small></span><Icon name="next"/></a>
           <a href="#/settings/family" @click.prevent="openFamily(pendingInvites?'received':'sent')"><Icon name="users"/><span><strong>家庭管理</strong><small>{{ account.family?.name || '创建家庭或接受邀请' }}<template v-if="pendingInvites"> · {{ pendingInvites }} 项邀请</template></small></span><Icon name="next"/></a>
+          <a href="#/settings/feedback"><Icon name="feedback"/><span><strong>反馈</strong><small>{{ feedbackCount===undefined?'改进记录':feedbackCount+' 条改进未完成' }}</small></span><Icon name="next"/></a>
           <a href="#/settings/notifications"><Icon name="bell"/><span><strong>通知与设备</strong><small>本设备的通知授权与接收</small></span><Icon name="next"/></a>
         </nav>
         <button class="subtle settings-logout" @click="logout">退出账号</button>
@@ -1143,6 +1152,7 @@ onUnmounted(() => { clearActionFeedback();window.removeEventListener('keydown',s
       <ModuleSyncIssues v-if="route==='/plans'||route==='/memos'" :issues="currentModuleIssues.filter(issue=>issue.module===(route==='/plans'?'plan':'memo'))" :busy="moduleIssueBusy" @action="moduleIssueAction"/>
       <PlansWorkspace ref="plansWorkspaceRef" v-if="account.source && planSnapshot" v-show="route==='/plans'" :key="`${userId}:${account.restore_id}`" :source="account.source" :scope-label="scopeName" :snapshot="planSnapshot" :initial-draft="planDraft" :writable="supported && !serverUnsupported" :error="planError" :result="planResult" :focused-task-ids="memoCurrent?.local_focus?.targets.filter(t=>t.kind==='plan_task').map(t=>t.id)??[]" @focus="planFocused" @ai-adopted="planAiAdopted" @back="navigate('/home')" @command="planCommand" @draft-change="planDraftChanged" @request-attachment="planAttachmentRequested"><template #markdown="{markdown}"><MemoMarkdown :markdown="markdown"/></template></PlansWorkspace>
       <MemosWorkspace ref="memosWorkspaceRef" v-if="account.source" v-show="route==='/memos'" :key="`${userId}:${account.restore_id}`" :source="account.source" :scope-label="scopeName" :categories="memoCategories" :records="memoViews" :calendar-records="memoCalendarViews" @home-saved="navigate('/home')" :initial-draft="memoDraft" :writable="supported && !serverUnsupported" :error="memoError" :result="memoResult" :members="memoMembers" :deletion-requests="memoCurrent?.local_deletion_requests??[]" :focused-tasks="focusedPlanTasks" :focus-enabled="!!memoCurrent?.local_focus" :calendar-loading="calendarLoading" :calendar-error="calendarError" @calendar-month="memoCalendarMonth" schedule-enabled @focus="memoFocused" @operation="memoOperation" @open-plan-task="openPlanTask" @complete-plan-task="completePlanTask" @reorder-focus="memoReorderFocus" @reorder-categories="memoReorderCategories" @back="navigate('/home')" @save="memoSaved" @complete="memoCompleted" @create-category="memoCategoryCreated" @draft-change="memoDraftChanged" @request-attachment="memoAttachmentRequested"><template #markdown="{markdown}"><MemoMarkdown :markdown="markdown"/></template></MemosWorkspace>
+      <FeedbackPanel v-if="account.restore_id && (route==='/settings'||route==='/settings/feedback')" :key="userId+':'+account.restore_id" :origin="accountSource(account)" :open="route==='/settings/feedback'" @count="feedbackCount=$event" @close="returnFromConfig"/>
       <AccountPanel v-if="route==='/settings/account'" :key="userId" :account="account" embedded @close="returnFromConfig" @restore-changed="sync" @unauthorized="locked=true"/>
       <FamilyPanel ref="familyPanelRef" :open-sequence="familyOpenSequence" v-show="route==='/settings/family'" :key="userId" :account="account" embedded :received="receivedInvites" :sent="sentInvites" :loading="invitesLoading" :initial-tab="familyInitialTab" @close="returnFromConfig" @changed="familyChanged" @metadata-changed="familyMetadataChanged" @restore-changed="sync" @refresh="checkFamilyAndInvites" @unauthorized="locked=true"/>
       <DeviceNotifications v-if="route==='/settings/notifications'" :key="userId" :account="account" embedded @close="returnFromConfig" @restore-changed="sync" @unauthorized="locked=true"/>
@@ -1191,7 +1201,7 @@ onUnmounted(() => { clearActionFeedback();window.removeEventListener('keydown',s
     <div v-show="route==='/accounting' && !financialNavigationPaused">
     <div v-if="form && !locked" class="modal-backdrop" @click.self="!saving && !preparingPhotos && (form=undefined)"><section class="form-card" role="dialog" aria-modal="true" :aria-label="form.id?'修改支出':form.scope==='shared'?'记共同支出':'记私人支出'"><div class="handle"></div><div class="draft-navigation"><button class="text-button" @click="navigate('/home')"><Icon name="back"/>首页，稍后继续</button><small>未保存 · 关闭浏览器不保证保留</small></div><div class="form-title"><div><h2>{{ form.id?'修改支出':form.scope==='shared'?'记共同支出':'记私人支出' }}</h2><p class="form-scope" :class="{private:form.scope==='private'}">{{ form.scope==='shared'?'共同账 · 家庭成员可见':'私人账 · 仅本人可见' }}</p></div><button class="icon-button" @click="form=undefined" :disabled="saving || preparingPhotos" aria-label="取消"><Icon name="close"/></button></div>
       <form @submit.prevent="save" class="stack expense-entry-form"><div class="expense-sheet"><label class="amount-field">金额（元）<div><span>¥</span><input v-model="form.amount" inputmode="decimal" type="text" placeholder="0.00" required aria-label="金额（元）"></div></label><label>详细用途<textarea v-model="form.purpose" placeholder="例如：周末一起买菜" maxlength="500" rows="2" required></textarea></label></div>
-        <div class="expense-settings"><div><div class="category-label"><label for="category">分类 · 选填</label><button type="button" class="text-button" aria-label="新增分类" @click="categoryEditor=!categoryEditor">＋ 新增分类</button></div><select id="category" v-model="form.category" aria-label="分类"><option value="">未分类</option><option v-for="name in categories(form.scope)" :key="name">{{ name }}</option></select><div v-if="categoryEditor" class="category-editor"><label>新分类名称<input v-model="newCategory" maxlength="24" placeholder="例如：宠物" @keydown.enter.prevent="addCategory"></label><button type="button" class="subtle" @click="addCategory" :disabled="addingCategory">{{ addingCategory?'正在保存…':'保存分类' }}</button><small>保存后可反复使用。{{ form.scope==='shared'?'共同分类家庭成员可见。':'私人分类仅本人可见。' }}</small></div></div>
+        <div class="expense-settings"><div><div class="category-label"><label for="category">分类 · {{ form.scope==='shared'?'必填':'选填' }}</label><button type="button" class="text-button" aria-label="新增分类" @click="categoryEditor=!categoryEditor">＋ 新增分类</button></div><select id="category" v-model="form.category" :required="form.scope==='shared'" aria-label="分类"><option value="" :disabled="form.scope==='shared'">{{ form.scope==='shared'?'请选择分类':'未分类' }}</option><option v-for="name in categories(form.scope).filter(n=>form?.scope!=='shared'||n!=='未分类')" :key="name">{{ name }}</option></select><div v-if="categoryEditor" class="category-editor"><label>新分类名称<input v-model="newCategory" maxlength="24" placeholder="例如：宠物" @keydown.enter.prevent="addCategory"></label><button type="button" class="subtle" @click="addCategory" :disabled="addingCategory">{{ addingCategory?'正在保存…':'保存分类' }}</button><small>保存后可反复使用。{{ form.scope==='shared'?'共同分类家庭成员可见。':'私人分类仅本人可见。' }}</small></div></div>
         <div class="entry-time-location"><label>消费时间（本机时区）<input v-model="form.time" type="datetime-local" required></label>
           <label>满意度<select v-model="form.rating" aria-label="满意度" @change="form.ratingTouched=true"><option v-for="(label,n) in ratingLabels" :key="n" :value="String(n+1)">{{ label }}</option></select></label>
           <label v-if="ratingReasonVisible(form)">评价原因（选填）<textarea v-model="form.rating_reason" maxlength="500" rows="2" placeholder="可以记下感受，方便以后回顾"></textarea></label>

@@ -26,7 +26,7 @@ def main():
             manifest = prepare(args.repo, args.commit, args.baseline, config, args.output)
             result = {'status': 'prepared', 'commit': manifest['commit'], 'release_id': manifest['release_id'],
                       'source_files': len(manifest['source_files']), 'runtime_files': len(manifest['runtime']),
-                      'changed_files': manifest['changed_files'], 'network': 'none'}
+                      'changed_files': manifest['changed_files'], 'network': 'npm registry on cache miss only'}
         else:
             manifest = verify_bundle(args.output, config, args.repo)
             from .runner import Runner

@@ -243,7 +243,7 @@ def test_schema11_migration_preserves_old_values_reopens_backup_and_is_idempoten
     assert database.migrate_database(schema11)
     with connect(schema11) as db:
         verify(db,before)
-        assert db.execute('PRAGMA user_version').fetchone()[0]==13
+        assert db.execute('PRAGMA user_version').fetchone()[0]==database.SCHEMA_VERSION
         assert db.execute('SELECT body_markdown FROM plan_stages').fetchone()[0]==''
         assert db.execute('SELECT open_questions_markdown FROM plan_records').fetchone()[0]==''
         validate_database(db)

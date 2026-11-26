@@ -21,6 +21,15 @@ OFFLINE_NPM_INSTALL = (
     b'RUN --network=none npm ci --offline --no-audit --no-fund --cache /opt/build-npm-cache\n'
 )
 
+MEMO_REMINDER_LAYOUT_INPUTS = {
+    'web/src/style.css',
+    'web/src/memos/memos.css',
+    'web/src/memos/modern-memos.css',
+    'web/src/memos/MemoComposer.vue',
+    'web/src/memos/MemoTimeInput.vue',
+    'web/src/memos/MemosWorkspace.vue',
+}
+
 
 class ReleaseError(RuntimeError):
     pass
@@ -378,6 +387,25 @@ def add_offline_npm(context, archives):
     return context
 
 
+def check_memo_reminder_alignment(repo, candidate, output, changed):
+    if MEMO_REMINDER_LAYOUT_INPUTS.isdisjoint(changed):
+        return
+    python = repo / '.venv/bin/python'
+    require(python.is_file(), 'Memo reminder check requires the project .venv; run uv sync --locked')
+    env = dict(os.environ,
+               E2E_CANDIDATE=str(candidate),
+               E2E_SPEC=str(repo / 'tests/e2e/memo-reminder-alignment.cjs'),
+               SHARED_EXPENSE_SECURE_COOKIE='0')
+    env.setdefault('HTTP_TEST_PORT', '18779')
+    bundled_modules = Path.home() / '.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules'
+    if not env.get('NODE_PATH') and (bundled_modules / 'playwright').is_dir():
+        env['NODE_PATH'] = str(bundled_modules)
+    with (output / 'memo-reminder-alignment.log').open('wb') as log:
+        result = subprocess.run([str(python), 'tests/e2e/run_browser.py'], cwd=repo, env=env,
+                                stdout=log, stderr=subprocess.STDOUT)
+    require(result.returncode == 0, 'Memo reminder WebKit alignment check failed; see memo-reminder-alignment.log')
+
+
 def prepare(repo, commit, baseline, config, output):
     commit = git(repo, 'rev-parse', '--verify', commit + '^{commit}').decode().strip()
     baseline = git(repo, 'rev-parse', '--verify', baseline + '^{commit}').decode().strip()
@@ -419,6 +447,7 @@ def prepare(repo, commit, baseline, config, output):
         dist = stage / 'web/dist'
         runtime = {str(p.relative_to(dist)): sha(p.read_bytes()) for p in dist.rglob('*') if p.is_file()}
         require('index.html' in runtime and 'sw.js' in runtime, 'Incomplete PWA runtime build')
+        check_memo_reminder_alignment(repo, stage, output, changed)
     archives = npm_cache.context_cache(linux_tarballs, cache)
     context = add_offline_npm(offline_context(files, config), archives)
     npm_cache.verify_context_cache(linux_tarballs, context)

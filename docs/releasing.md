@@ -17,6 +17,8 @@ python3 scripts/release.py plan --config .local/release/config.json \
 
 `prepare` 只在本地执行，生成源码包、构建上下文、SHA 清单和日志；资源数量自动统计，包括异步编辑器的 JS／CSS。工具按 `web/package-lock.json` 校验 npm 依赖包，优先复用本地已校验的缓存。缺少或损坏的包会在准备阶段从锁文件记录的 Registry 地址获取并校验。构建包包含 Linux x64/glibc 所需依赖，目标主机在禁用网络的构建步骤运行 `npm ci --offline`。Python wheelhouse 和固定基础镜像仍需预先准备。
 
+变更备忘编辑提醒的组件或关联样式时，`prepare` 在本机运行专项 WebKit 回归。它通过临时虚构账本检查桌面和窄屏布局。请先完成项目开发环境安装，并准备 Playwright 和 WebKit。如 Playwright 安装在项目外，可用 `NODE_PATH` 指定模块位置。默认测试端口为 18779，可用 `HTTP_TEST_PORT` 指定空闲端口。失败详情见发布输出中的 `memo-reminder-alignment.log`。
+
 ## 兼容边界
 
 默认只接受 Vue／CSS、静态资源与前端测试变化，项目自身版本号另做严格语义比较。数据库结构、存储协议、后端依赖、构建脚本等变化会阻断，不能用此入口执行迁移。

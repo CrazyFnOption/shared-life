@@ -75,24 +75,40 @@
 .memos-workspace .memo-time-input>label{min-width:0}
 .memos-workspace .memo-time-input select{color-scheme:light;font-variant-numeric:tabular-nums}
 .memos-workspace .memo-time-input option{background:var(--memo-paper);color:var(--memo-ink)}
-.memos-workspace .memo-once-time{display:flex;flex-direction:column;gap:12px;min-width:0}
-.memos-workspace .memo-quick-reminders{display:flex;flex-direction:column;gap:10px;min-width:0}
-.memos-workspace .memo-quick-heading,.memos-workspace .memo-quick-group>span{font-size:13px;color:var(--memo-muted)}
-.memos-workspace .memo-quick-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
-.memos-workspace .memo-quick-grid button{min-width:0;min-height:44px;padding:9px 4px;border:1px solid var(--memo-line);border-radius:10px;background:var(--memo-soft);color:var(--memo-accent);font-size:13px;text-align:center}
-.memos-workspace .memo-quick-grid button[aria-pressed=true]{border-color:var(--memo-accent);box-shadow:inset 0 0 0 1px var(--memo-accent);font-weight:600}
-.memos-workspace .memo-quick-grid button:focus-visible,.memos-workspace .memo-quick-more>summary:focus-visible{outline:2px solid var(--memo-accent);outline-offset:2px}
-.memos-workspace .memo-quick-more>summary{display:flex;align-items:center;justify-content:space-between;min-height:44px;list-style:none;cursor:pointer;color:var(--memo-accent);font-size:13px}
-.memos-workspace .memo-quick-more>summary::-webkit-details-marker{display:none}
-.memos-workspace .memo-quick-more>summary:after{content:'＋'}
-.memos-workspace .memo-quick-more[open]>summary:after{content:'−'}
-.memos-workspace .memo-quick-more-content,.memos-workspace .memo-quick-group{display:flex;flex-direction:column;gap:8px}
-.memos-workspace .memo-quick-more-content{gap:14px;padding-bottom:4px}
-.memos-workspace .memo-custom-reminder{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:8px;align-items:end}
-.memos-workspace .memo-custom-reminder .memo-secondary{min-height:48px;padding-inline:12px}
-.memos-workspace .memo-quick-preview{display:flex;flex-direction:column;gap:4px;padding:12px;border-radius:10px;background:var(--memo-soft);color:var(--memo-accent);font-size:13px;line-height:1.6;overflow-wrap:anywhere}
-.memos-workspace .memo-quick-preview strong{font-weight:550}
-.memos-workspace .memo-quick-preview small{font-size:12px;color:var(--memo-muted)}
+.memos-workspace .memo-once-time,.memos-workspace .memo-delay-input{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;min-width:0}
+.memos-workspace .memo-once-time input,.memos-workspace .memo-delay-input input{min-width:0;width:100%}
+.memos-workspace .memo-once-time .memo-day-caption{margin-inline-start:8px;color:var(--memo-accent)}
+.memos-workspace .memo-reminder-settings :is(input[type="date"],input[type="number"],select) {
+  height: 48px;
+  min-height: 48px;
+  margin: 0;
+  padding-block: 11px;
+  line-height: 24px;
+}
+.memos-workspace .memo-reminder-settings select {
+  /* WebKit's native menu button can ignore the form field height. */
+  -webkit-appearance: none;
+  appearance: none;
+  padding-inline-end: 28px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='m1 1 5 5 5-5' fill='none' stroke='%2363766F' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 10px 7px;
+}
+.memos-workspace .memo-reminder-controls{display:flex;align-items:center;flex-wrap:wrap;gap:4px 12px}
+.memos-workspace .memo-reminder-controls .memo-field{flex:none}
+.memos-workspace .memo-reminder-controls select{width:auto;font-size:13px}
+.memos-workspace .memo-reminder-controls .memo-text-button{min-height:48px;padding-inline:4px}
+.memos-workspace .memo-reminder-controls .memo-remove-reminder{margin-inline-start:auto;color:var(--memo-muted)}
+.memos-workspace .memo-recipient-options{min-width:0;border-top:1px solid var(--memo-line)}
+.memos-workspace .memo-recipient-options>summary{display:flex;align-items:center;gap:8px;min-height:44px;list-style:none;cursor:pointer;font-size:13px}
+.memos-workspace .memo-recipient-options>summary::-webkit-details-marker{display:none}
+.memos-workspace .memo-recipient-options>summary:after{content:'＋';color:var(--memo-muted)}
+.memos-workspace .memo-recipient-options[open]>summary:after{content:'−'}
+.memos-workspace .memo-recipient-options>summary small{margin-inline-start:auto;color:var(--memo-muted)}
+@media(max-width:560px){
+  .memos-workspace .memo-once-time{grid-template-columns:minmax(0,1fr)}
+}
 
 .memos-workspace .memo-day-picker{margin:0;padding:0;border:0;min-width:0}
 .memos-workspace .memo-day-picker legend,.memos-workspace .memo-clock-list>.memo-field-head{font-size:13px;color:var(--memo-muted);margin-bottom:8px}
